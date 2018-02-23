@@ -25,7 +25,12 @@ namespace index {
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
   // Check whether we should insert the new entry
- 
+  void *ptr = Search(key, 0);
+  if (!duplicated_key) {
+    ptr = Search(key, 0);
+    if (ptr != NULL && key_cmp_obj(((LeafNode *)ptr)->pair.first, key))
+      return false;
+  }
   // Determine the height of the tower
   int levels = 0;
   while (rand() % 2) levels++;
@@ -54,7 +59,6 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
 
   // Find the position to insert the key for each level
   // TODO: Make this concurrent
-  void *ptr = Search(key, 0);
   if (ptr == NULL) {
     lf_node->next = head_nodes[0].next;
     head_nodes[0].next = lf_node;

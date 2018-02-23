@@ -118,10 +118,12 @@ class SkipList {
 
  public:
   // Constructor
-  SkipList(KeyComparator p_key_cmp_obj = KeyComparator{},
+  SkipList(bool p_duplicated_key = false,
+           KeyComparator p_key_cmp_obj = KeyComparator{},
            KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
            ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
-      : key_cmp_obj(p_key_cmp_obj),
+      : duplicated_key(p_duplicated_key),
+        key_cmp_obj(p_key_cmp_obj),
         key_eq_obj(p_key_eq_obj),
         value_eq_obj(p_value_eq_obj) {
     head_nodes.push_back(HeadNode());
@@ -146,6 +148,9 @@ class SkipList {
       delete prev;
     }
   }
+
+ public:
+  const bool duplicated_key;
   // Key comparator
   const KeyComparator key_cmp_obj;
 
