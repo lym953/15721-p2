@@ -64,7 +64,8 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
     lf_node->next = head_nodes[0].next;
     head_nodes[0].next = lf_node;
   } else {
-    static_cast<LeafNode *>(ptr)->next = lf_node;
+    lf_node->next = ((LeafNode *)ptr)->next;
+    ((LeafNode *)ptr)->next = lf_node;
   }
 
   for (int i = 1; i <= levels; i++) {
