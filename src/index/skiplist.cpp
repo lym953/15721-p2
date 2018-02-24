@@ -30,34 +30,31 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
   // Check whether we should insert the new entry
   void *ptr = Search(key, 0);
   if (!duplicated_key) {
-    ptr = Search(key, 0);
     if (ptr != NULL && key_eq_obj(((LeafNode *)ptr)->pair.first, key))
       return false;
   }
+
   // Determine the height of the tower
-  uint32_t v = rand();
+  int v = rand();
   int levels =
       MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
-
-  // Add additional levels if the tower exceeds the maximum height
-  if (levels > max_level) {
-    max_level = levels;
-  }
 
   // Fill in keys and values and then link the tower
   LeafNode *lf_node = new LeafNode;
   lf_node->pair = std::make_pair(key, value);
-  InnerNode *in_nodes[levels];
-  for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode;
-  if (levels > 0) {
-    for (int i = 0; i < levels - 1; i++) {
-      in_nodes[i]->key = key;
-      in_nodes[i]->down = in_nodes[i + 1];
-    }
-    in_nodes[levels - 1]->key = key;
-    in_nodes[levels - 1]->down = lf_node;
-  }
 
+  // in_nodes[i-1] represents an InnerNode at level i
+  InnerNode *in_nodes[levels];
+  if (levels > 0) {
+    for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode();
+    // Link InnerNodes
+    for (int i = 1; i < levels; i++) {
+      in_nodes[i]->key = key;
+      in_nodes[i]->down = in_nodes[i - 1];
+    }
+    in_nodes[0]->key = key;
+    in_nodes[0]->down = lf_node;
+  }
   // Find the position to insert the key for each level
   // TODO: Make this concurrent
   if (ptr == NULL) {
@@ -67,7 +64,7 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
     lf_node->next = ((LeafNode *)ptr)->next;
     ((LeafNode *)ptr)->next = lf_node;
   }
-
+  PrintSkipList();
   for (int i = 1; i <= levels; i++) {
     void *ptr = Search(key, i);
     if (ptr == NULL) {
@@ -75,8 +72,13 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
       head_nodes[i].next = in_nodes[i - 1];
     } else {
       in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
-      static_cast<InnerNode *>(ptr)->next = in_nodes[i - 1];
+      ((InnerNode *)(ptr))->next = in_nodes[i - 1];
     }
+  }
+
+  // Add additional levels if the tower exceeds the maximum height
+  if (levels > max_level) {
+    max_level = levels;
   }
 
   return true;
@@ -106,7 +108,11 @@ void SKIPLIST_TYPE::PrintSkipList() {
  * level specified by the input. (It returns a pointer to InnerNode if level
  * > 0 and a pointer to LeafNode if level == 0)
  * If the there is no node before the key at that level, it returns NULL.
- * It returns NULL if level is invalid.
+ * It returns NULL if level is invalid, meaning level is not in [0,31]
+ *
+ * NOTE: Even if the max_level is 6, we can still do Search(99, 8) as long
+ * as 8 belongs to [0,31]. Of course, it will return NULL because there is
+ * no node at level 8 whose key <= 99.
  * */
 SKIPLIST_TEMPLATE_ARGUMENTS
 void *SKIPLIST_TYPE::Search(const KeyType &key, int level) {
@@ -130,13 +136,14 @@ void *SKIPLIST_TYPE::Search(const KeyType &key, int level) {
         cur = (InnerNode *)(cur->next);
       }
     }
-    // We finished searching at level cur_level
-    if (cur_level == level) return static_cast<void *>(prev);
+    if (cur_level == level) return prev;
     cur_level--;
-    if (prev == NULL)
+    if (prev == NULL) {
       cur = (InnerNode *)head_nodes[cur_level].next;
-    else
+    } else {
       cur = (InnerNode *)(((InnerNode *)prev)->down);
+      prev = NULL;
+    }
   }
 }
 
