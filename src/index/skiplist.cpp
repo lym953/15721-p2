@@ -55,30 +55,50 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
     in_nodes[0]->key = key;
     in_nodes[0]->down = lf_node;
   }
-  // Find the position to insert the key for each level
-  // TODO: Make this concurrent
+
+// Find the position to insert the key for each level
+link_level_0:
   if (ptr == NULL) {
     lf_node->next = head_nodes[0].next;
-    head_nodes[0].next = lf_node;
+    while (!__sync_bool_compare_and_swap(&head_nodes[0].next, lf_node->next,
+                                         lf_node)) {
+      ptr = Search(key, 0);
+      goto link_level_0;
+    }
   } else {
     lf_node->next = ((LeafNode *)ptr)->next;
-    ((LeafNode *)ptr)->next = lf_node;
-  }
-  PrintSkipList();
-  for (int i = 1; i <= levels; i++) {
-    void *ptr = Search(key, i);
-    if (ptr == NULL) {
-      in_nodes[i - 1]->next = head_nodes[i].next;
-      head_nodes[i].next = in_nodes[i - 1];
-    } else {
-      in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
-      ((InnerNode *)(ptr))->next = in_nodes[i - 1];
+    while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
+                                         lf_node->next, lf_node)) {
+      ptr = Search(key, 0);
+      goto link_level_0;
     }
   }
 
-  // Add additional levels if the tower exceeds the maximum height
-  if (levels > max_level) {
-    max_level = levels;
+  for (int i = 1; i <= levels; i++) {
+  link_level_i:
+    void *ptr = Search(key, i);
+    if (ptr == NULL) {
+      in_nodes[i - 1]->next = head_nodes[i].next;
+      while (!__sync_bool_compare_and_swap(
+                 &head_nodes[i].next, in_nodes[i - 1]->next, in_nodes[i - 1])) {
+        goto link_level_i;
+      }
+    } else {
+      in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
+      while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),
+                                           in_nodes[i - 1]->next,
+                                           in_nodes[i - 1])) {
+        goto link_level_i;
+      }
+    }
+  }
+// Add additional levels if the tower exceeds the maximum height
+update_max_level:
+  int cur_max_level = max_level;
+  if (levels > cur_max_level) {
+    while (!__sync_bool_compare_and_swap(&max_level, cur_max_level, levels)) {
+      goto update_max_level;
+    }
   }
 
   return true;
