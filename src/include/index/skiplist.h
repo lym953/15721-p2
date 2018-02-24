@@ -128,7 +128,7 @@ class SkipList {
         key_cmp_obj(p_key_cmp_obj),
         key_eq_obj(p_key_eq_obj),
         value_eq_obj(p_value_eq_obj) {
-    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNodea();
+    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
   };
 
   // Destructor
