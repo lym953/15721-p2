@@ -25,6 +25,8 @@ namespace index {
   template <typename KeyType, typename ValueType, typename KeyComparator, \
             typename KeyEqualityChecker, typename ValueEqualityChecker>
 
+#define MAX_NUM_LEVEL 32
+
 template <typename KeyType, typename ValueType, typename KeyComparator,
           typename KeyEqualityChecker, typename ValueEqualityChecker>
 class SkipList {
@@ -126,12 +128,12 @@ class SkipList {
         key_cmp_obj(p_key_cmp_obj),
         key_eq_obj(p_key_eq_obj),
         value_eq_obj(p_value_eq_obj) {
-    head_nodes.push_back(HeadNode());
+    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNodea();
   };
 
   // Destructor
   ~SkipList() {
-    for (unsigned i = 1; i < head_nodes.size(); i++) {
+    for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
       InnerNode *cur = (InnerNode *)head_nodes[i].next;
       InnerNode *prev = NULL;
       while (cur != NULL) {
@@ -159,7 +161,10 @@ class SkipList {
 
   const ValueEqualityChecker value_eq_obj;
 
-  std::vector<HeadNode> head_nodes;
+  HeadNode head_nodes[MAX_NUM_LEVEL];
+
+  // max_level falls in [0, 31]
+  int max_level;
 
  private:
   void *Search(const KeyType &key, int level);

@@ -28,7 +28,7 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
   void *ptr = Search(key, 0);
   if (!duplicated_key) {
     ptr = Search(key, 0);
-    if (ptr != NULL && key_cmp_obj(((LeafNode *)ptr)->pair.first, key))
+    if (ptr != NULL && key_eq_obj(((LeafNode *)ptr)->pair.first, key))
       return false;
   }
   // Determine the height of the tower
@@ -36,11 +36,8 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
   while (rand() % 2) levels++;
 
   // Add additional levels if the tower exceeds the maximum height
-  if (levels > (head_nodes.size() - 1)) {
-    int diff = levels - head_nodes.size() + 1;
-    for (int i = 0; i < diff; i++) {
-      head_nodes.push_back(HeadNode());
-    }
+  if (levels > max_level) {
+    max_level = levels;
   }
 
   // Fill in keys and values and then link the tower
@@ -72,7 +69,7 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
       in_nodes[i - 1]->next = head_nodes[i].next;
       head_nodes[i].next = in_nodes[i - 1];
     } else {
-      in_nodes[i - 1]->next = static_cast<InnerNode *>(ptr)->next;
+      in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
       static_cast<InnerNode *>(ptr)->next = in_nodes[i - 1];
     }
   }
@@ -82,8 +79,7 @@ bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
 
 SKIPLIST_TEMPLATE_ARGUMENTS
 void SKIPLIST_TYPE::PrintSkipList() {
-  std::cout << head_nodes.size() << std::endl;
-  for (int i = head_nodes.size() - 1; i > 0; i--) {
+  for (int i = max_level; i > 0; i--) {
     std::cout << "Level " << i << " :";
     InnerNode *cur = static_cast<InnerNode *>(head_nodes[i].next);
     while (cur != NULL) {
@@ -111,12 +107,9 @@ SKIPLIST_TEMPLATE_ARGUMENTS
 void *SKIPLIST_TYPE::Search(const KeyType &key, int level) {
   // Check if skiplist is empty
   if (IsEmpty()) return NULL;
-  if (level > head_nodes.size() - 1) return NULL;
+  if (level > max_level || level < 0) return NULL;
 
-  // Keep track of the level
-  typename std::vector<HeadNode>::reverse_iterator it = head_nodes.rbegin();
-
-  int cur_level = head_nodes.size() - 1;
+  int cur_level = max_level;
   InnerNode *cur = (InnerNode *)head_nodes[cur_level].next;
   void *prev = NULL;
   while (1) {
