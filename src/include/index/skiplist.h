@@ -25,6 +25,10 @@ namespace index {
   template <typename KeyType, typename ValueType, typename KeyComparator, \
             typename KeyEqualityChecker, typename ValueEqualityChecker>
 
+#define SKIPLIST_TYPE                                             \
+  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
+           ValueEqualityChecker>
+
 #define MAX_NUM_LEVEL 32
 
 template <typename KeyType, typename ValueType, typename KeyComparator,
@@ -101,17 +105,106 @@ class SkipList {
   //  bool NeedGarbageCollection();
   //  void PerformGarbageCollection();
   //
-  //  ///////////////////////////////////////////////////////////////////
-  //  // Forward Iterator
-  //  ///////////////////////////////////////////////////////////////////
-  //  /*
-  //   * Iterator Interface
-  //   */
-  //  class ForwardIterator;
-  //  ForwardIterator Begin();
-  //  ForwardIterator Begin(const KeyType &start_key);
-  //  bool IsEnd() const;
-  //  inline ForwardIterator &operator++();
+
+  ///////////////////////////////////////////////////////////////////
+  // Forward Iterator
+  ///////////////////////////////////////////////////////////////////
+
+  /*
+   * class ForwardIterator - Iterator that supports forward iteration of list
+   *                         elements
+   */
+  class ForwardIterator;
+
+  /*
+   * Begin() - Return an iterator pointing to the first element in the list, or
+   * an
+   *           end iterator if the list is empty.
+   */
+  ForwardIterator Begin() { return ForwardIterator{this}; }
+
+  /*
+   * Begin() - Return an iterator using a given key
+   *
+   * The iterator returned will point to the first data item whose key is
+   * greater
+   * than or equal to the given start key.
+   */
+  ForwardIterator Begin(const KeyType &start_key) {
+    return ForwardIterator{this, start_key};
+  }
+
+  /*
+   * class ForwardIterator - Iterator that supports forward iteration of list
+   *                         elements
+   */
+  class ForwardIterator {
+   private:
+    LeafNode *lf_node;
+    SKIPLIST_TYPE *list_p;
+
+   public:
+    /*
+     * Constructor
+     *
+     * The iterator will point to the first element in the list, or an
+     * end iterator if the list is empty.
+     */
+    ForwardIterator(SKIPLIST_TYPE *p_list_p);
+
+    /*
+     * Constructor - Construct an iterator given a key
+     *
+     * The iterator will point to the first data item whose key is greater
+     * than or equal to the given start key, or an end iterator if the list
+     * is empty.
+     */
+    ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key);
+
+    /*
+     * IsEnd() - Whether the current iterator has reached the end of the list
+     */
+    bool IsEnd() const;
+
+    /*
+     * LowerBound() - Load leaf page whose key >= start_key
+     */
+    void LowerBound(const KeyType &start_key_p);
+
+    /*
+     * operator*() - Return the value reference currently pointed to by this
+     *               iterator
+     */
+    inline const KeyValuePair &operator*() { return *lf_node->pair; }
+
+    /*
+     * operator->() - Returns the value pointer pointed to by this iterator
+     */
+    inline const KeyValuePair *operator->() { return &lf_node->pair; }
+
+    /*
+     * Prefix operator++ - Move the iterator ahead
+     *
+     * The caller is responsible for checking whether the iterator has reached
+     * its end.
+     */
+    inline ForwardIterator &operator++() {
+      MoveAheadByOne();
+      return *this;
+    }
+
+    /*
+     * MoveAheadByOne() - Move the iterator ahead by one
+     *
+     * The caller is responsible for checking whether the iterator has reached
+     * its end. If iterator has reached end then assertion fails.
+     */
+    inline void MoveAheadByOne() {
+      PL_ASSERT(lf_node != nullptr);
+      lf_node = (SKIPLIST_TYPE::LeafNode *)lf_node->next;
+    }
+  };
+
   //    ///////////////////////////////////////////////////////////////////
   //    // Utility Funciton
   //    ///////////////////////////////////////////////////////////////////

@@ -15,15 +15,15 @@
 #include <utility>
 #include <iostream>
 
-#define SKIPLIST_TYPE                                             \
-  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
-           ValueEqualityChecker>
-
 namespace peloton {
 namespace index {
 static const int MultiplyDeBruijnBitPosition[32] = {
     0,  1,  28, 2,  29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4,  8,
     31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
+
+////////////////////////////////////////////////////////////////////
+// Interface Method Implementation
+////////////////////////////////////////////////////////////////////
 
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_TYPE::Insert(const KeyType &key, const ValueType &value) {
@@ -80,7 +80,7 @@ link_level_0:
     if (ptr == NULL) {
       in_nodes[i - 1]->next = head_nodes[i].next;
       while (!__sync_bool_compare_and_swap(
-                 &head_nodes[i].next, in_nodes[i - 1]->next, in_nodes[i - 1])) {
+          &head_nodes[i].next, in_nodes[i - 1]->next, in_nodes[i - 1])) {
         goto link_level_i;
       }
     } else {
@@ -165,6 +165,36 @@ void *SKIPLIST_TYPE::Search(const KeyType &key, int level) {
       prev = NULL;
     }
   }
+}
+
+///////////////////////////////////////////////////////////////////
+// Forward Iterator
+///////////////////////////////////////////////////////////////////
+
+SKIPLIST_TEMPLATE_ARGUMENTS
+SKIPLIST_TYPE::ForwardIterator::ForwardIterator(SKIPLIST_TYPE *p_list_p)
+    : list_p{p_list_p} {
+  lf_node = (SKIPLIST_TYPE::LeafNode *)list_p->head_nodes[0].next;
+}
+
+SKIPLIST_TEMPLATE_ARGUMENTS
+SKIPLIST_TYPE::ForwardIterator::ForwardIterator(SKIPLIST_TYPE *p_list_p,
+                                                const KeyType &start_key)
+    : list_p{p_list_p} {
+  LowerBound(start_key);
+}
+
+SKIPLIST_TEMPLATE_ARGUMENTS
+bool SKIPLIST_TYPE::ForwardIterator::IsEnd() const { return lf_node == NULL; }
+
+SKIPLIST_TEMPLATE_ARGUMENTS
+void SKIPLIST_TYPE::ForwardIterator::LowerBound(const KeyType &start_key_p) {
+  lf_node = (SKIPLIST_TYPE::LeafNode *)list_p->Search(start_key_p, 0);
+  if (lf_node && list_p->KeyCmpLess(lf_node->pair.first, start_key_p)) {
+    lf_node = (SKIPLIST_TYPE::LeafNode *)lf_node->next;
+  }
+  PL_ASSERT(lf_node == nullptr ||
+            KeyCmpLessEqual(start_key_p, lf_node->pair.first));
 }
 
 }  // namespace index
