@@ -70,9 +70,9 @@ bool SKIPLIST_INDEX_TYPE::DeleteEntry(
 
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_INDEX_TYPE::CondInsertEntry(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE ItemPointer *value,
-    UNUSED_ATTRIBUTE std::function<bool(const void *)> predicate) {
+    const storage::Tuple *key,
+    ItemPointer *value,
+    std::function<bool(const void *)> predicate) {
   std::vector<ValueType> values;
   ScanKey(key, values);
   for (size_t i = 0; i < values.size(); i++) {
