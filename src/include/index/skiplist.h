@@ -368,18 +368,18 @@ class SkipList {
   int max_level;
 
  private:
-  /* It returns the pointer to the node whose key is the largest key <= key at
-   * level specified by the input. (It returns a pointer to InnerNode if level
-   * > 0 and a pointer to LeafNode if level == 0)
+  /* It returns the pointer to the node with the largest key <= @key at
+   * @level. If there are multiple nodes with keys == @key, then it
+   * returns the first node.
+   *
+   * It returns a pointer to InnerNode if @level > 0 and a pointer to
+   * LeafNode if @level == 0.
+   *
    * If the there is no node before the key at that level, it returns NULL.
-   * It returns NULL if level is invalid, meaning level is not in [0,31]
+   * (NOTE: It will not return a pointer to HeadNode.)
    *
-   * NOTE: Even if the max_level is 6, we can still do Search(99, 8) as long
-   * as 8 belongs to [0,31]. Of course, it will return NULL because there is
-   * no node at level 8 whose key <= 99.
-   *
-   * NOTE2: If we allow duplicated keys, it will find the last, largest key.
-   *
+   * It returns NULL if @level is invalid, meaning @level is not in
+   * [0, MAX_NUM_LEVEL-1].
    * */
   void *Search(const KeyType &key, int level) {
     // Check if skiplist is empty
@@ -394,11 +394,13 @@ class SkipList {
         LeafNode *leaf_cur = (LeafNode *)cur;
         while (leaf_cur != NULL && KeyCmpLessEqual(leaf_cur->pair.first, key)) {
           prev = leaf_cur;
+          if(key_eq_obj(leaf_cur->pair.first, key)) break;
           leaf_cur = (LeafNode *)(leaf_cur->next);
         }
       } else {
         while (cur != NULL && KeyCmpLessEqual(cur->key, key)) {
           prev = cur;
+          if(key_eq_obj(cur->key, key)) break;
           cur = (InnerNode *)(cur->next);
         }
       }
@@ -413,7 +415,7 @@ class SkipList {
     }
   }
 
-  // Used for findinf the least significant bit
+  // Used for finding the least significant bit
   const int MultiplyDeBruijnBitPosition[32] = {
       0,  1,  28, 2,  29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4,  8,
       31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
