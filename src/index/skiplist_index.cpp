@@ -87,10 +87,50 @@ void SKIPLIST_INDEX_TYPE::Scan(
     UNUSED_ATTRIBUTE const std::vector<type::Value> &value_list,
     UNUSED_ATTRIBUTE const std::vector<oid_t> &tuple_column_id_list,
     UNUSED_ATTRIBUTE const std::vector<ExpressionType> &expr_list,
-    UNUSED_ATTRIBUTE ScanDirectionType scan_direction,
-    UNUSED_ATTRIBUTE std::vector<ValueType> &result,
-    UNUSED_ATTRIBUTE const ConjunctionScanPredicate *csp_p) {
-  // TODO: Add your implementation here
+    ScanDirectionType scan_direction, std::vector<ValueType> &result,
+    const ConjunctionScanPredicate *csp_p) {
+  if (scan_direction == ScanDirectionType::INVALID) {
+    throw Exception("Invalid scan direction \n");
+  }
+
+  LOG_TRACE("Scan() Point Query = %d; Full Scan = %d ", csp_p->IsPointQuery(),
+            csp_p->IsFullIndexScan());
+
+  if (csp_p->IsPointQuery()) {
+    const storage::Tuple *point_query_key_p = csp_p->GetPointQueryKey();
+
+    KeyType point_query_key;
+    point_query_key.SetFromKey(point_query_key_p);
+    container.GetValue(point_query_key, result);
+  } else if (csp_p->IsFullIndexScan()) {
+    for (auto it = container.Begin(); !it.IsEnd(); ++it) {
+      result.push_back(it->second);
+    }
+  } else {
+    const storage::Tuple *low_key_p = csp_p->GetLowKey();
+    const storage::Tuple *high_key_p = csp_p->GetHighKey();
+
+    LOG_TRACE("Partial scan low key: %s\n high key: %s",
+              low_key_p->GetInfo().c_str(), high_key_p->GetInfo().c_str());
+
+    KeyType index_low_key;
+    KeyType index_high_key;
+    index_low_key.SetFromKey(low_key_p);
+    index_high_key.SetFromKey(high_key_p);
+
+    // We use skiplist Begin() to first reach the lower bound
+    // of the search key
+    for (auto it = container.Begin(index_low_key);
+         !it.IsEnd() && container.KeyCmpLessEqual(it->first, index_high_key);
+         ++it) {
+      result.push_back(it->second);
+    }
+  }  // if is full scan
+
+  if (scan_direction == ScanDirectionType::BACKWARD) {
+    std::reverse(result.begin(), result.end());
+  }
+
   return;
 }
 
