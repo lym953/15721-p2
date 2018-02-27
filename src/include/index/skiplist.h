@@ -172,9 +172,7 @@ class SkipList {
 
     return true;
   }
-  //  bool ConditionalInsert(const KeyType &key, const ValueType &value,
-  //                         std::function<bool(const void *)> predicate,
-  //                         bool *predicate_satisfied);
+
   //  bool Delete(const KeyType &key, const ValueType &value);
 
   void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {

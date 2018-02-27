@@ -73,9 +73,13 @@ bool SKIPLIST_INDEX_TYPE::CondInsertEntry(
     UNUSED_ATTRIBUTE const storage::Tuple *key,
     UNUSED_ATTRIBUTE ItemPointer *value,
     UNUSED_ATTRIBUTE std::function<bool(const void *)> predicate) {
-  bool ret = false;
-  // TODO: Add your implementation here
-  return ret;
+  std::vector<ValueType> values;
+  ScanKey(key, values);
+  for (size_t i = 0; i < values.size(); i++) {
+    if (predicate(values[i])) return false;
+  }
+  InsertEntry(key, value);
+  return true;
 }
 
 /*
