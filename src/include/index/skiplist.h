@@ -174,8 +174,15 @@ class SkipList {
   //                         std::function<bool(const void *)> predicate,
   //                         bool *predicate_satisfied);
   //  bool Delete(const KeyType &key, const ValueType &value);
-  //  void GetValue(const KeyType &search_key, std::vector<ValueType>
-  //  &value_list);
+
+  void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
+    void *ptr = Search(search_key, 0);
+    if (ptr != NULL) {
+      while (key_eq_obj(((LeafNode *)ptr)->pair.first, search_key)) {
+        value_list.push_back(((LeafNode *)ptr)->pair.second);
+      }
+    }
+  }
   //
   //  ///////////////////////////////////////////////////////////////////
   //  // Garbage Collection
@@ -367,7 +374,7 @@ class SkipList {
   // max_level falls in [0, MAX_NUM_LEVEL]
   int max_level;
 
- private:
+ public:
   /* It returns the pointer to the node with the largest key <= @key at
    * @level. If there are multiple nodes with keys == @key, then it
    * returns the first node.
@@ -394,13 +401,13 @@ class SkipList {
         LeafNode *leaf_cur = (LeafNode *)cur;
         while (leaf_cur != NULL && KeyCmpLessEqual(leaf_cur->pair.first, key)) {
           prev = leaf_cur;
-          if(key_eq_obj(leaf_cur->pair.first, key)) break;
+          if (key_eq_obj(leaf_cur->pair.first, key)) break;
           leaf_cur = (LeafNode *)(leaf_cur->next);
         }
       } else {
         while (cur != NULL && KeyCmpLessEqual(cur->key, key)) {
           prev = cur;
-          if(key_eq_obj(cur->key, key)) break;
+          if (key_eq_obj(cur->key, key)) break;
           cur = (InnerNode *)(cur->next);
         }
       }
@@ -415,6 +422,7 @@ class SkipList {
     }
   }
 
+ private:
   // Used for finding the least significant bit
   const int MultiplyDeBruijnBitPosition[32] = {
       0,  1,  28, 2,  29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4,  8,
