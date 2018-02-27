@@ -95,10 +95,11 @@ class SkipList {
 
   bool Insert(const KeyType &key, const ValueType &value) {
     // Check whether we should insert the new entry
-    void *ptr = Search(key, 0);
-    if (!duplicated_key) {
-      if (ptr != NULL && key_eq_obj(((LeafNode *)ptr)->pair.first, key))
-        return false;
+    auto it = Begin(key);
+    while(!it.IsEnd() && key_eq_obj(it->first, key)){
+      if(duplicated_key) return false;
+      if(value_eq_obj(it->second, value)) return false;
+      ++it;
     }
 
     // Determine the height of the tower
@@ -124,19 +125,19 @@ class SkipList {
     }
 
   // Find the position to insert the key for each level
+    void *ptr;
   link_level_0:
+    *ptr = Search(key, 0);
     if (ptr == NULL) {
       lf_node->next = head_nodes[0].next;
       while (!__sync_bool_compare_and_swap(&head_nodes[0].next, lf_node->next,
                                            lf_node)) {
-        ptr = Search(key, 0);
         goto link_level_0;
       }
     } else {
       lf_node->next = ((LeafNode *)ptr)->next;
       while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
                                            lf_node->next, lf_node)) {
-        ptr = Search(key, 0);
         goto link_level_0;
       }
     }
@@ -331,10 +332,10 @@ class SkipList {
    * @level. If there are multiple nodes with keys == @key, then it
    * returns the first node.
    *
-   * Ex: SearchLower(5, 0) returns a pointer to the first 5
+   * Ex: Search(5, 0) returns a pointer to the first 5
    *   [level 0]: 3 -> 4 -> 4 -> 5 -> 5 -> 6
    *
-   * Ex: SearchLower(5, 0) returns a pointer to the second 4
+   * Ex: Search(5, 0) returns a pointer to the second 4
    *   [level 0]: 3 -> 4 -> 4 -> 6 -> 6 -> 6
    *
    *
@@ -485,7 +486,7 @@ class SkipList {
   HeadNode head_nodes[MAX_NUM_LEVEL];
 
   // max_level falls in [0, MAX_NUM_LEVEL]
-  int max_level;
+  int max_level = 0;
 
  private:
   // Used for finding the least significant bit
