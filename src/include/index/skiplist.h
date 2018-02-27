@@ -96,9 +96,9 @@ class SkipList {
   bool Insert(const KeyType &key, const ValueType &value) {
     // Check whether we should insert the new entry
     auto it = Begin(key);
-    while(!it.IsEnd() && key_eq_obj(it->first, key)){
-      if(duplicated_key) return false;
-      if(value_eq_obj(it->second, value)) return false;
+    while (!it.IsEnd() && key_eq_obj(it->first, key)) {
+      if (duplicated_key) return false;
+      if (value_eq_obj(it->second, value)) return false;
       ++it;
     }
 
@@ -124,7 +124,7 @@ class SkipList {
       in_nodes[0]->down = lf_node;
     }
 
-  // Find the position to insert the key for each level
+    // Find the position to insert the key for each level
     void *ptr;
   link_level_0:
     *ptr = Search(key, 0);
