@@ -112,9 +112,15 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
 }
 
 SKIPLIST_TEMPLATE_ARGUMENTS
-void SKIPLIST_INDEX_TYPE::ScanAllKeys(
-    UNUSED_ATTRIBUTE std::vector<ValueType> &result) {
-  // TODO: Add your implementation here
+void SKIPLIST_INDEX_TYPE::ScanAllKeys(std::vector<ValueType> &result) {
+  auto it = container.Begin();
+
+  // scan all entries
+  while (it.IsEnd() == false) {
+    result.push_back(it->second);
+    ++it;
+  }
+
   return;
 }
 
