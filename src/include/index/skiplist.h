@@ -379,6 +379,17 @@ class SkipList {
    * @level. If there are multiple nodes with keys == @key, then it
    * returns the first node.
    *
+   * Ex: SearchLower(5, 0) returns a pointer to the first 5
+   *   [level 0]: 3 -> 4 -> 4 -> 5 -> 5 -> 6
+   *
+   * Ex: SearchLower(5, 0) returns a pointer to the second 4
+   *   [level 0]: 3 -> 4 -> 4 -> 6 -> 6 -> 6
+   *
+   *
+   * IMPORTANT: It ignores delete flags. If this is not what you want,
+   * you might consider using ForwardIterators.
+   *
+   *
    * It returns a pointer to InnerNode if @level > 0 and a pointer to
    * LeafNode if @level == 0.
    *
@@ -389,6 +400,62 @@ class SkipList {
    * [0, MAX_NUM_LEVEL-1].
    * */
   void *Search(const KeyType &key, int level) {
+    // Check if skiplist is empty and valid parameter
+    if (IsEmpty()) return NULL;
+    if (level > max_level || level < 0) return NULL;
+
+    void *ptr = SearchLower(key, level);
+    if (ptr != NULL) {
+      if (level == 0) {
+        LeafNode *next = (LeafNode *)(((LeafNode *)ptr)->next);
+        if (next != NULL && key_eq_obj(next->pair.first, key))
+          return next;
+        else
+          return ptr;
+      } else {
+        InnerNode *next = (InnerNode *)(((InnerNode *)ptr)->next);
+        if (next != NULL && key_eq_obj(next->key, key))
+          return next;
+        else
+          return ptr;
+      }
+    } else {
+      if (level == 0) {
+        LeafNode *next = (LeafNode *)(head_nodes[level].next);
+        if (next != NULL && key_eq_obj(next->pair.first, key))
+          return next;
+        else
+          return ptr;
+      } else {
+        InnerNode *next = (InnerNode *)(head_nodes[level].next);
+        if (next != NULL && key_eq_obj(next->key, key))
+          return next;
+        else
+          return ptr;
+      }
+    }
+  }
+
+  /* It returns the pointer to the node with the largest key strictly < @key
+   * at @level. If there are multiple largest nodes when duplicated keys are
+   * allowed, it returns the last one.
+   *
+   * Ex: SearchLower(5, 0) returns a pointer to the second 4
+   *   3-> 4 -> 4 -> 5 -> 5 -> 6
+   *
+   * IMPORTANT: It ignores delete flags. If this is not what you want,
+   * you might consider using ForwardIterators.
+   *
+   * It returns a pointer to InnerNode if @level > 0 and a pointer to
+   * LeafNode if @level == 0.
+   *
+   * If the there is no node before the key at that level, it returns NULL.
+   * (NOTE: It will not return a pointer to HeadNode.)
+   *
+   * It returns NULL if @level is invalid, meaning @level is not in
+   * [0, MAX_NUM_LEVEL-1].
+   * */
+  void *SearchLower(const KeyType &key, int level) {
     // Check if skiplist is empty
     if (IsEmpty()) return NULL;
     if (level > max_level || level < 0) return NULL;
@@ -399,15 +466,13 @@ class SkipList {
     while (1) {
       if (cur_level == 0) {
         LeafNode *leaf_cur = (LeafNode *)cur;
-        while (leaf_cur != NULL && KeyCmpLessEqual(leaf_cur->pair.first, key)) {
+        while (leaf_cur != NULL && KeyCmpLess(leaf_cur->pair.first, key)) {
           prev = leaf_cur;
-          if (key_eq_obj(leaf_cur->pair.first, key)) break;
           leaf_cur = (LeafNode *)(leaf_cur->next);
         }
       } else {
-        while (cur != NULL && KeyCmpLessEqual(cur->key, key)) {
+        while (cur != NULL && KeyCmpLess(cur->key, key)) {
           prev = cur;
-          if (key_eq_obj(cur->key, key)) break;
           cur = (InnerNode *)(cur->next);
         }
       }
