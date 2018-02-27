@@ -15,6 +15,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <queue>
 
 #include "catalog/manager.h"
 #include "common/platform.h"
@@ -26,6 +27,8 @@
 #define SKIPLIST_INDEX_TYPE                                            \
   SkipListIndex<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
                 ValueEqualityChecker>
+
+#define MIN(x, y) ((x) < (y) ? (x) : (y))
 
 namespace peloton {
 namespace index {
