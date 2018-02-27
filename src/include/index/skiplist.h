@@ -176,11 +176,11 @@ class SkipList {
   //  bool Delete(const KeyType &key, const ValueType &value);
 
   void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
-    void *ptr = Search(search_key, 0);
-    if (ptr != NULL) {
-      while (key_eq_obj(((LeafNode *)ptr)->pair.first, search_key)) {
-        value_list.push_back(((LeafNode *)ptr)->pair.second);
-      }
+    auto it = Begin(search_key);
+
+    while(!it.IsEnd() && key_eq_obj(it->first, search_key)){
+      value_list.push_back(it->second);
+      ++it;
     }
   }
   //
