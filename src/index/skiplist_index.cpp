@@ -41,11 +41,16 @@ SKIPLIST_INDEX_TYPE::~SkipListIndex() {}
  * If the key value pair already exists in the map, just return false
  */
 SKIPLIST_TEMPLATE_ARGUMENTS
-bool SKIPLIST_INDEX_TYPE::InsertEntry(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE ItemPointer *value) {
-  bool ret = false;
-  // TODO: Add your implementation here
+bool SKIPLIST_INDEX_TYPE::InsertEntry(const storage::Tuple *key,
+                                      ItemPointer *value) {
+  KeyType index_key;
+  index_key.SetFromKey(key);
+
+  bool ret = container.Insert(index_key, value);
+
+  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]", index_key.GetInfo().c_str(),
+            IndexUtil::GetInfo(value).c_str(), (ret ? "SUCCESS" : "FAIL"));
+
   return ret;
 }
 
