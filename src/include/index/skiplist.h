@@ -302,9 +302,9 @@ class SkipList {
     }
   };
 
-  //    ///////////////////////////////////////////////////////////////////
-  //    // Utility Funciton
-  //    ///////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////
+  // Utility Funciton
+  ///////////////////////////////////////////////////////////////////
   bool IsEmpty() { return head_nodes[0].next == NULL; }
 
   void PrintSkipList() {
@@ -327,55 +327,6 @@ class SkipList {
     std::cout << std::endl;
   }
 
- public:
-  // Constructor
-  SkipList(bool p_duplicated_key = false,
-           KeyComparator p_key_cmp_obj = KeyComparator{},
-           KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
-           ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
-      : duplicated_key(p_duplicated_key),
-        key_cmp_obj(p_key_cmp_obj),
-        key_eq_obj(p_key_eq_obj),
-        value_eq_obj(p_value_eq_obj) {
-    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
-  };
-
-  // Destructor
-  ~SkipList() {
-    for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
-      InnerNode *cur = (InnerNode *)head_nodes[i].next;
-      InnerNode *prev = NULL;
-      while (cur != NULL) {
-        prev = cur;
-        cur = (InnerNode *)(cur->next);
-        delete prev;
-      }
-    }
-    LeafNode *cur = (LeafNode *)head_nodes[0].next;
-    LeafNode *prev = NULL;
-    while (cur != NULL) {
-      prev = cur;
-      cur = (LeafNode *)(cur->next);
-      delete prev;
-    }
-  }
-
- public:
-  const bool duplicated_key;
-  // Key comparator
-  const KeyComparator key_cmp_obj;
-
-  // Raw key eq checker
-  const KeyEqualityChecker key_eq_obj;
-
-  const ValueEqualityChecker value_eq_obj;
-
-  HeadNode head_nodes[MAX_NUM_LEVEL];
-
-  // max_level falls in [0, MAX_NUM_LEVEL]
-  int max_level;
-
- public:
   /* It returns the pointer to the node with the largest key <= @key at
    * @level. If there are multiple nodes with keys == @key, then it
    * returns the first node.
@@ -487,6 +438,54 @@ class SkipList {
       }
     }
   }
+
+ public:
+  // Constructor
+  SkipList(bool p_duplicated_key = false,
+           KeyComparator p_key_cmp_obj = KeyComparator{},
+           KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
+           ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
+      : duplicated_key(p_duplicated_key),
+        key_cmp_obj(p_key_cmp_obj),
+        key_eq_obj(p_key_eq_obj),
+        value_eq_obj(p_value_eq_obj) {
+    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
+  };
+
+  // Destructor
+  ~SkipList() {
+    for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
+      InnerNode *cur = (InnerNode *)head_nodes[i].next;
+      InnerNode *prev = NULL;
+      while (cur != NULL) {
+        prev = cur;
+        cur = (InnerNode *)(cur->next);
+        delete prev;
+      }
+    }
+    LeafNode *cur = (LeafNode *)head_nodes[0].next;
+    LeafNode *prev = NULL;
+    while (cur != NULL) {
+      prev = cur;
+      cur = (LeafNode *)(cur->next);
+      delete prev;
+    }
+  }
+
+ public:
+  const bool duplicated_key;
+  // Key comparator
+  const KeyComparator key_cmp_obj;
+
+  // Raw key eq checker
+  const KeyEqualityChecker key_eq_obj;
+
+  const ValueEqualityChecker value_eq_obj;
+
+  HeadNode head_nodes[MAX_NUM_LEVEL];
+
+  // max_level falls in [0, MAX_NUM_LEVEL]
+  int max_level;
 
  private:
   // Used for finding the least significant bit
