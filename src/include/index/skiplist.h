@@ -238,7 +238,7 @@ class SkipList {
      * end iterator if the list is empty.
      */
     ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
-      lf_node = (SKIPLIST_TYPE::LeafNode *)list_p->head_nodes[0].next;
+      lf_node = (LeafNode *)list_p->head_nodes[0].next;
     }
 
     /*
@@ -261,10 +261,17 @@ class SkipList {
      * LowerBound() - Load leaf page whose key >= start_key
      */
     void LowerBound(const KeyType &start_key_p) {
-      lf_node = (SKIPLIST_TYPE::LeafNode *)list_p->Search(start_key_p, 0);
-      if (lf_node && list_p->KeyCmpLess(lf_node->pair.first, start_key_p)) {
-        lf_node = (SKIPLIST_TYPE::LeafNode *)lf_node->next;
+      lf_node = (LeafNode *)list_p->Search(start_key_p, 0);
+
+      if (lf_node == nullptr) {
+        // There is no node whose key <= start_key
+        lf_node = (LeafNode *)list_p->head_nodes[0].next;
+      } else if (list_p->KeyCmpLess(lf_node->pair.first, start_key_p)) {
+        // There is no node whose key == start_key. Now lf_node is the last
+        // one whose key < start_key.
+        lf_node = (LeafNode *)lf_node->next;
       }
+
       PL_ASSERT(lf_node == nullptr ||
                 KeyCmpLessEqual(start_key_p, lf_node->pair.first));
     }
@@ -299,7 +306,7 @@ class SkipList {
      */
     inline void MoveAheadByOne() {
       PL_ASSERT(lf_node != nullptr);
-      lf_node = (SKIPLIST_TYPE::LeafNode *)lf_node->next;
+      lf_node = (LeafNode *)lf_node->next;
     }
   };
 
