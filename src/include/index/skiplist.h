@@ -50,6 +50,7 @@ class SkipList {
   class LeafNode : public BaseNode {
    public:
     KeyValuePair pair;
+    bool deleted;
   };
 
   class InnerNode : public BaseNode {
@@ -87,6 +88,23 @@ class SkipList {
   inline bool KeyCmpLessEqual(const KeyType &key1, const KeyType &key2) const {
     return !KeyCmpGreater(key1, key2);
   }
+
+  /**
+   * key compare equal.
+   */
+  inline bool KeyCmpEqual()(const KeyType &key1, const KeyType &key2) const {
+      return key_eq_obj(kvp1.first, kvp2.first);
+  }
+
+
+  /*
+   * KeyCmpLessEqual() - Compare two key-value pair for <= relation
+   */
+  inline bool KeyValueCmpEqual()(const KeyValuePair &kvp1,const KeyValuePair &kvp2) const {
+      return (key_eq_obj(kvp1.first, kvp2.first) &&
+                    value_eq_obj(kvp1.second, kvp2.second));
+  }
+
 
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
