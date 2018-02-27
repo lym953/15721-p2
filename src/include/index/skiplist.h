@@ -50,6 +50,7 @@ class SkipList {
   class LeafNode : public BaseNode {
    public:
     KeyValuePair pair;
+    bool deleted;
   };
 
   class InnerNode : public BaseNode {
