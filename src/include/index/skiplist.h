@@ -47,16 +47,18 @@ class SkipList {
 
   class HeadNode : public BaseNode {};
 
-  class LeafNode : public BaseNode {
-   public:
-    KeyValuePair pair;
-    bool deleted;
-  };
-
   class InnerNode : public BaseNode {
    public:
     KeyType key;
     BaseNode *down;
+    InnerNode *up;
+  };
+
+  class LeafNode : public BaseNode {
+   public:
+    KeyValuePair pair;
+    InnerNode *up;
+    bool deleted;
   };
 
   ///////////////////////////////////////////////////////////////////
@@ -116,12 +118,19 @@ class SkipList {
     if (levels > 0) {
       for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode();
       // Link InnerNodes
-      for (int i = 1; i < levels; i++) {
+      for (int i = 1; i < levels - 1; i++) {
         in_nodes[i]->key = key;
         in_nodes[i]->down = in_nodes[i - 1];
+        in_nodes[i]->up = in_nodes[i + 1];
       }
+      // bottom innernode
       in_nodes[0]->key = key;
       in_nodes[0]->down = lf_node;
+      in_nodes[0]->up = in_nodes[1];
+      // top innernode
+      in_nodes[levels - 1]->key = key;
+      in_nodes[levels - 1]->down = in_nodes[levels - 2];
+      in_nodes[levels - 1]->up = NULL;
     }
 
     // Find the position to insert the key for each level
