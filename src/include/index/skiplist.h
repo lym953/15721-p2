@@ -165,7 +165,7 @@ class SkipList {
     // Find the position to insert the key for each level
     void *ptr;
   link_level_0:
-    ptr = Search(key, 0);
+    ptr = SearchLower(key, 0);
     if (ptr == NULL) {
       lf_node->next = head_nodes[0].next;
       while (!__sync_bool_compare_and_swap(&head_nodes[0].next, lf_node->next,
@@ -182,7 +182,7 @@ class SkipList {
 
     for (int i = 1; i <= levels; i++) {
     link_level_i:
-      void *ptr = Search(key, i);
+      void *ptr = SearchLower(key, i);
       if (ptr == NULL) {
         in_nodes[i - 1]->next = head_nodes[i].next;
         while (!__sync_bool_compare_and_swap(&head_nodes[i].next,
