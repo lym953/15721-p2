@@ -19,6 +19,7 @@
 #include <set>
 namespace peloton {
 namespace index {
+
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
@@ -164,7 +165,7 @@ class SkipList {
     // Find the position to insert the key for each level
     void *ptr;
   link_level_0:
-    ptr = Search(key, 0);
+    ptr = SearchLower(key, 0);
     if (ptr == NULL) {
       lf_node->next = head_nodes[0].next;
       while (!__sync_bool_compare_and_swap(&head_nodes[0].next, lf_node->next,
@@ -181,7 +182,7 @@ class SkipList {
 
     for (int i = 1; i <= levels; i++) {
     link_level_i:
-      void *ptr = Search(key, i);
+      void *ptr = SearchLower(key, i);
       if (ptr == NULL) {
         in_nodes[i - 1]->next = head_nodes[i].next;
         while (!__sync_bool_compare_and_swap(&head_nodes[i].next,
@@ -558,6 +559,156 @@ class SkipList {
     std::cout << std::endl;
   }
 
+  bool StructuralIntegrityCheck() {
+    // Check if max_level is valid
+    std::cout << "Checking max_level ... " << std::flush;
+    if (max_level < 0 || max_level >= MAX_NUM_LEVEL) {
+      std::cout << "Failed" << std::endl;
+      return false;
+    }
+    std::cout << "Correct" << std::endl;
+
+    // Check if it's sorted at each level
+    std::cout << "Checking if it's sorted at each level ... " << std::flush;
+    for (int i = 1; i < MAX_NUM_LEVEL; i++) {
+      InnerNode *ptr = (InnerNode *)(head_nodes[i].next);
+      KeyType prev_key;
+      if (ptr != NULL) prev_key = ptr->key;
+      while (ptr) {
+        if (!KeyCmpLessEqual(prev_key, ptr->key)) {
+          std::cout << "Failed" << std::endl;
+          return false;
+        }
+        prev_key = ptr->key;
+        ptr = (InnerNode *)(ptr->next);
+      }
+    }
+    LeafNode *ptr = (LeafNode *)(head_nodes[0].next);
+    KeyType prev_key;
+    if (ptr != NULL) prev_key = ptr->pair.first;
+    while (ptr) {
+      if (!KeyCmpLessEqual(prev_key, ptr->pair.first)) {
+        std::cout << "Failed" << std::endl;
+        return false;
+      }
+      prev_key = ptr->pair.first;
+      ptr = (LeafNode *)(ptr->next);
+    }
+    std::cout << "Correct" << std::endl;
+
+    // Check if each InnerNode can reach a LeafNode that has the same key value
+    std::cout << "Checking if InnerNode can reach a LeafNode that has the same "
+                 "key value ... " << std::flush;
+    for (int i = 1; i < MAX_NUM_LEVEL; i++) {
+      InnerNode *cur = (InnerNode *)(head_nodes[i].next);
+      while (cur != NULL) {
+        InnerNode *ptr = cur;
+        for (int j = i; j != 0; j--) {
+          ptr = (InnerNode *)(ptr->down);
+          if (ptr == NULL) {
+            std::cout << "Failed (InnerNode cannot reach a LeafNode)"
+                      << std::endl;
+            return false;
+          }
+        }
+        if (!key_eq_obj(((LeafNode *)ptr)->pair.first, cur->key)) {
+          std::cout << "Failed  (LeafNode has difference key than InnerNode)"
+                    << std::endl;
+          return false;
+        }
+        cur = (InnerNode *)cur->next;
+      }
+    }
+    std::cout << "Correct" << std::endl;
+
+    // Check if each LeafNode can reach it's highest InnerNode by following
+    // the up pointer
+    std::cout << "Checking if LeafNode can go up and find its InnerNode ... "
+              << std::flush;
+    ptr = (LeafNode *)(head_nodes[0].next);
+    while (ptr != NULL) {
+      InnerNode *cur = ptr->up;
+      InnerNode *prev = NULL;
+      while (cur != NULL) {
+        prev = cur;
+        cur = cur->up;
+      }
+      if (prev != NULL && !key_eq_obj(prev->key, ptr->pair.first)) {
+        std::cout << "Failed  (LeafNode has difference key than InnerNode)"
+                  << std::endl;
+        return false;
+      }
+      ptr = (LeafNode *)(ptr->next);
+    }
+    std::cout << "Correct" << std::endl;
+
+    // Check if there's duplicated keys when duplicates are not allowed
+    if (!duplicated_key) {
+      std::cout << "Checking if no duplicated keys ... " << std::flush;
+      ptr = (LeafNode *)(head_nodes[0].next);
+      bool deleted = false;
+      if (ptr != NULL) {
+        prev_key = ptr->pair.first;
+        deleted = ptr->deleted;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      while (ptr != NULL) {
+        if (key_eq_obj(ptr->pair.first, prev_key) && !deleted &&
+            !ptr->deleted) {
+          std::cout << "Failed  (Contain duplicated keys)" << std::endl;
+          return false;
+        }
+        if (key_eq_obj(prev_key, ptr->pair.first)) {
+          deleted = deleted && ptr->deleted;
+        } else {
+          deleted = ptr->deleted;
+        }
+        prev_key = ptr->pair.first;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      std::cout << "Correct" << std::endl;
+    }
+
+    // Check if there's duplicated (key, value) pair when duplicates are
+    // allowed
+    if (duplicated_key) {
+      std::cout << "Checking if no duplicated (key, value) pairs ... "
+                << std::flush;
+      ptr = (LeafNode *)(head_nodes[0].next);
+      bool deleted = false;
+      ValueType prev_value;
+      if (ptr != NULL) {
+        prev_key = ptr->pair.first;
+        prev_value = ptr->pair.second;
+        deleted = ptr->deleted;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      while (ptr != NULL) {
+        if (key_eq_obj(ptr->pair.first, prev_key) &&
+            value_eq_obj(ptr->pair.second, prev_value) && !deleted &&
+            !ptr->deleted) {
+          std::cout << "Failed  (Contain duplicated (key,value) pairs)"
+                    << std::endl;
+          return false;
+        }
+        if (key_eq_obj(prev_key, ptr->pair.first) &&
+            value_eq_obj(prev_value, ptr->pair.second)) {
+          deleted = deleted && ptr->deleted;
+        } else {
+          deleted = ptr->deleted;
+        }
+        prev_key = ptr->pair.first;
+        prev_value = ptr->pair.second;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      std::cout << "Correct" << std::endl;
+    }
+
+    // Check if InnerNode A -> InnerNode B, then it should be the case that
+    // LeafNode A appears before LeafNode B
+    return true;
+  }
+
   /* It returns the pointer to the node with the largest key <= @key at
    * @level. If there are multiple nodes with keys == @key, then it
    * returns the first node.
@@ -767,6 +918,7 @@ class SkipList {
 
   // Destructor
   ~SkipList() {
+    // Free alive nodes
     for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
       InnerNode *cur = (InnerNode *)head_nodes[i].next;
       InnerNode *prev = NULL;
@@ -783,6 +935,8 @@ class SkipList {
       cur = (LeafNode *)(cur->next);
       delete prev;
     }
+
+    // TODO: Free dead nodes, i.e., nodes are in the memory pool.
   }
 
  public:
