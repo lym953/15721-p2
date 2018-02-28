@@ -237,6 +237,7 @@ class SkipList {
      */
     ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
       lf_node = (LeafNode *)list_p->head_nodes[0].next;
+      MoveAheadToUndeletedNode();
     }
 
     /*
@@ -250,6 +251,7 @@ class SkipList {
         : list_p{p_list_p} {
       LowerBound(start_key);
     }
+
     /*
      * IsEnd() - Whether the current iterator has reached the end of the list
      */
@@ -269,6 +271,7 @@ class SkipList {
         // one whose key < start_key.
         lf_node = (LeafNode *)lf_node->next;
       }
+      MoveAheadToUndeletedNode();
 
       PL_ASSERT(lf_node == nullptr ||
                 KeyCmpLessEqual(start_key_p, lf_node->pair.first));
@@ -305,6 +308,21 @@ class SkipList {
     inline void MoveAheadByOne() {
       PL_ASSERT(lf_node != nullptr);
       lf_node = (LeafNode *)lf_node->next;
+      MoveAheadToUndeletedNode();
+    }
+
+    /*
+     * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
+     * undeleted node
+     *
+     * If the iterator is currently pointing to an undeleted node, then it
+     * will not be moved. If there is no undeleted node after the iterator,
+     * then it will become an end iterator.
+     */
+    inline void MoveAheadToUndeletedNode() {
+      while (lf_node && lf_node->deleted) {
+        lf_node = (LeafNode *)lf_node->next;
+      }
     }
   };
 
