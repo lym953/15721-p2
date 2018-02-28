@@ -27,8 +27,9 @@ SKIPLIST_INDEX_TYPE::SkipListIndex(IndexMetadata *metadata)
       // Key "less than" relation comparator
       comparator{},
       // Key equality checker
-      equals{} {
-  // TODO: Add your implementation here
+      equals{},
+
+      container{metadata->HasUniqueKeys(), comparator, equals} {
   return;
 }
 
@@ -41,11 +42,16 @@ SKIPLIST_INDEX_TYPE::~SkipListIndex() {}
  * If the key value pair already exists in the map, just return false
  */
 SKIPLIST_TEMPLATE_ARGUMENTS
-bool SKIPLIST_INDEX_TYPE::InsertEntry(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE ItemPointer *value) {
-  bool ret = false;
-  // TODO: Add your implementation here
+bool SKIPLIST_INDEX_TYPE::InsertEntry(const storage::Tuple *key,
+                                      ItemPointer *value) {
+  KeyType index_key;
+  index_key.SetFromKey(key);
+
+  bool ret = container.Insert(index_key, value);
+
+  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]", index_key.GetInfo().c_str(),
+            IndexUtil::GetInfo(value).c_str(), (ret ? "SUCCESS" : "FAIL"));
+
   return ret;
 }
 
@@ -65,12 +71,15 @@ bool SKIPLIST_INDEX_TYPE::DeleteEntry(
 
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_INDEX_TYPE::CondInsertEntry(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE ItemPointer *value,
-    UNUSED_ATTRIBUTE std::function<bool(const void *)> predicate) {
-  bool ret = false;
-  // TODO: Add your implementation here
-  return ret;
+    const storage::Tuple *key, ItemPointer *value,
+    std::function<bool(const void *)> predicate) {
+  std::vector<ValueType> values;
+  ScanKey(key, values);
+  for (size_t i = 0; i < values.size(); i++) {
+    if (predicate(values[i])) return false;
+  }
+  InsertEntry(key, value);
+  return true;
 }
 
 /*
@@ -82,10 +91,50 @@ void SKIPLIST_INDEX_TYPE::Scan(
     UNUSED_ATTRIBUTE const std::vector<type::Value> &value_list,
     UNUSED_ATTRIBUTE const std::vector<oid_t> &tuple_column_id_list,
     UNUSED_ATTRIBUTE const std::vector<ExpressionType> &expr_list,
-    UNUSED_ATTRIBUTE ScanDirectionType scan_direction,
-    UNUSED_ATTRIBUTE std::vector<ValueType> &result,
-    UNUSED_ATTRIBUTE const ConjunctionScanPredicate *csp_p) {
-  // TODO: Add your implementation here
+    ScanDirectionType scan_direction, std::vector<ValueType> &result,
+    const ConjunctionScanPredicate *csp_p) {
+  if (scan_direction == ScanDirectionType::INVALID) {
+    throw Exception("Invalid scan direction \n");
+  }
+
+  LOG_TRACE("Scan() Point Query = %d; Full Scan = %d ", csp_p->IsPointQuery(),
+            csp_p->IsFullIndexScan());
+
+  if (csp_p->IsPointQuery()) {
+    const storage::Tuple *point_query_key_p = csp_p->GetPointQueryKey();
+
+    KeyType point_query_key;
+    point_query_key.SetFromKey(point_query_key_p);
+    container.GetValue(point_query_key, result);
+  } else if (csp_p->IsFullIndexScan()) {
+    for (auto it = container.Begin(); !it.IsEnd(); ++it) {
+      result.push_back(it->second);
+    }
+  } else {
+    const storage::Tuple *low_key_p = csp_p->GetLowKey();
+    const storage::Tuple *high_key_p = csp_p->GetHighKey();
+
+    LOG_TRACE("Partial scan low key: %s\n high key: %s",
+              low_key_p->GetInfo().c_str(), high_key_p->GetInfo().c_str());
+
+    KeyType index_low_key;
+    KeyType index_high_key;
+    index_low_key.SetFromKey(low_key_p);
+    index_high_key.SetFromKey(high_key_p);
+
+    // We use skiplist Begin() to first reach the lower bound
+    // of the search key
+    for (auto it = container.Begin(index_low_key);
+         !it.IsEnd() && container.KeyCmpLessEqual(it->first, index_high_key);
+         ++it) {
+      result.push_back(it->second);
+    }
+  }  // if is full scan
+
+  if (scan_direction == ScanDirectionType::BACKWARD) {
+    std::reverse(result.begin(), result.end());
+  }
+
   return;
 }
 
@@ -102,22 +151,200 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
     UNUSED_ATTRIBUTE std::vector<ValueType> &result,
     UNUSED_ATTRIBUTE const ConjunctionScanPredicate *csp_p,
     UNUSED_ATTRIBUTE uint64_t limit, UNUSED_ATTRIBUTE uint64_t offset) {
-  // TODO: Add your implementation here
+  if (scan_direction == ScanDirectionType::INVALID) {
+    throw Exception("Invalid scan direction \n");
+  }
+
+  LOG_TRACE("Scan() Point Query = %d; Full Scan = %d ", csp_p->IsPointQuery(),
+            csp_p->IsFullIndexScan());
+
+  if (csp_p->IsPointQuery()) {
+    const storage::Tuple *point_query_key_p = csp_p->GetPointQueryKey();
+
+    KeyType point_query_key;
+    point_query_key.SetFromKey(point_query_key_p);
+
+    // Find the first node that matches the search key
+    auto it = container.Begin(point_query_key);
+
+    if (scan_direction == ScanDirectionType::FORWARD) {
+      // Case 1.1: point query + forward scan
+
+      // Skip some nodes to reach offset
+      for (uint64_t i = 0; i < offset; i++, ++it) {
+        if (it.IsEnd() || !container.key_eq_obj(it->first, point_query_key)) {
+          return;
+        }
+      }
+
+      // Collect results
+      for (uint64_t i = 0; i < limit && !it.IsEnd() &&
+                               container.key_eq_obj(it->first, point_query_key);
+           i++, ++it) {
+        result.push_back(it->second);
+      }
+    } else {
+      // Case 1.2: point query + backward scan
+
+      std::queue<ValueType> result_queue;
+
+      // Collect the first (limit + offset) nodes
+      for (uint64_t i = 0; i < limit + offset && !it.IsEnd() &&
+                               container.key_eq_obj(it->first, point_query_key);
+           i++, ++it) {
+        result_queue.push(it->second);
+      }
+
+      // Translate the window until it reaches the end of the list or the right
+      // end of window does not satiafy the query criterion
+      while (!it.IsEnd() && container.key_eq_obj(it->first, point_query_key)) {
+        result_queue.pop();
+        result_queue.push(it->second);
+        ++it;
+      }
+
+      // Dump needed result from the queue to the vector
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
+      for (uint64_t i = 0; i < result_size; i++) {
+        result.push_back(result_queue.front());
+        result_queue.pop();
+      }
+      std::reverse(result.begin(), result.end());
+    }
+
+  } else if (csp_p->IsFullIndexScan()) {
+    auto it = container.Begin();
+
+    if (scan_direction == ScanDirectionType::FORWARD) {
+      // Case 2.1: full scan + forward scan
+
+      // Skip some nodes to reach offset
+      for (uint64_t i = 0; i < offset; i++, ++it) {
+        if (it.IsEnd()) {
+          return;
+        }
+      }
+
+      // Collect results
+      for (uint64_t i = 0; i < limit && !it.IsEnd(); i++, ++it) {
+        result.push_back(it->second);
+      }
+    } else {
+      // Case 2.2: full scan + backward scan
+
+      std::queue<ValueType> result_queue;
+
+      // Collect the first (limit + offset) nodes
+      for (uint64_t i = 0; i < limit + offset && !it.IsEnd(); i++, ++it) {
+        result_queue.push(it->second);
+      }
+
+      // Translate the window until it reaches the end of the list
+      while (!it.IsEnd()) {
+        result_queue.pop();
+        result_queue.push(it->second);
+        ++it;
+      }
+
+      // Dump needed result from the queue to the vector
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
+      for (uint64_t i = 0; i < result_size; i++) {
+        result.push_back(result_queue.front());
+        result_queue.pop();
+      }
+      std::reverse(result.begin(), result.end());
+    }
+
+  } else {
+    const storage::Tuple *low_key_p = csp_p->GetLowKey();
+    const storage::Tuple *high_key_p = csp_p->GetHighKey();
+
+    LOG_TRACE("Partial scan low key: %s\n high key: %s",
+              low_key_p->GetInfo().c_str(), high_key_p->GetInfo().c_str());
+
+    KeyType index_low_key;
+    KeyType index_high_key;
+    index_low_key.SetFromKey(low_key_p);
+    index_high_key.SetFromKey(high_key_p);
+
+    // Find the lower bound of the search key
+    auto it = container.Begin(index_low_key);
+
+    if (scan_direction == ScanDirectionType::FORWARD) {
+      // Case 3.1: range query + forward scan
+
+      for (uint64_t i = 0; i < offset; i++, ++it) {
+        if (it.IsEnd()) {
+          return;
+        }
+      }
+
+      // Collect results
+      for (uint64_t i = 0;
+           i < limit && !it.IsEnd() &&
+               container.KeyCmpLessEqual(it->first, index_high_key);
+           i++, ++it) {
+        result.push_back(it->second);
+      }
+    } else {
+      // Case 3.2: range query + backward scan
+
+      std::queue<ValueType> result_queue;
+
+      // Collect the first (limit + offset) nodes
+      for (uint64_t i = 0;
+           i < limit + offset && !it.IsEnd() &&
+               container.KeyCmpLessEqual(it->first, index_high_key);
+           i++, ++it) {
+        result_queue.push(it->second);
+      }
+
+      // Translate the window until the right end of window does not satiafy the
+      // query criterion
+      while (!it.IsEnd() &&
+             container.KeyCmpLessEqual(it->first, index_high_key)) {
+        result_queue.pop();
+        result_queue.push(it->second);
+        ++it;
+      }
+
+      // Dump needed result from the queue to the vector
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
+      for (uint64_t i = 0; i < result_size; i++) {
+        result.push_back(result_queue.front());
+        result_queue.pop();
+      }
+      std::reverse(result.begin(), result.end());
+    }
+
+  }  // if is full scan
+}
+
+SKIPLIST_TEMPLATE_ARGUMENTS
+void SKIPLIST_INDEX_TYPE::ScanAllKeys(std::vector<ValueType> &result) {
+  auto it = container.Begin();
+
+  // scan all entries
+  while (it.IsEnd() == false) {
+    result.push_back(it->second);
+    ++it;
+  }
+
   return;
 }
 
 SKIPLIST_TEMPLATE_ARGUMENTS
-void SKIPLIST_INDEX_TYPE::ScanAllKeys(
-    UNUSED_ATTRIBUTE std::vector<ValueType> &result) {
-  // TODO: Add your implementation here
-  return;
-}
+void SKIPLIST_INDEX_TYPE::ScanKey(const storage::Tuple *key,
+                                  std::vector<ValueType> &result) {
+  KeyType index_key;
+  index_key.SetFromKey(key);
 
-SKIPLIST_TEMPLATE_ARGUMENTS
-void SKIPLIST_INDEX_TYPE::ScanKey(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE std::vector<ValueType> &result) {
-  // TODO: Add your implementation here
+  // This function in SkipList fills a given vector
+  container.GetValue(index_key, result);
+
   return;
 }
 

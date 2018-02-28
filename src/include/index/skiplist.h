@@ -49,16 +49,18 @@ class SkipList {
 
   class HeadNode : public BaseNode {};
 
-  class LeafNode : public BaseNode {
-   public:
-    KeyValuePair pair;
-    bool deleted;
-  };
-
   class InnerNode : public BaseNode {
    public:
     KeyType key;
     BaseNode *down;
+    InnerNode *up;
+  };
+
+  class LeafNode : public BaseNode {
+   public:
+    KeyValuePair pair;
+    InnerNode *up;
+    bool deleted;
   };
 
   ///////////////////////////////////////////////////////////////////
@@ -116,7 +118,7 @@ class SkipList {
     // Check whether we should insert the new entry
     auto it = Begin(key);
     while (!it.IsEnd() && key_eq_obj(it->first, key)) {
-      if (duplicated_key) return false;
+      if (!duplicated_key) return false;
       if (value_eq_obj(it->second, value)) return false;
       ++it;
     }
@@ -135,12 +137,19 @@ class SkipList {
     if (levels > 0) {
       for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode();
       // Link InnerNodes
-      for (int i = 1; i < levels; i++) {
+      for (int i = 1; i < levels - 1; i++) {
         in_nodes[i]->key = key;
         in_nodes[i]->down = in_nodes[i - 1];
+        in_nodes[i]->up = in_nodes[i + 1];
       }
+      // bottom innernode
       in_nodes[0]->key = key;
       in_nodes[0]->down = lf_node;
+      in_nodes[0]->up = in_nodes[1];
+      // top innernode
+      in_nodes[levels - 1]->key = key;
+      in_nodes[levels - 1]->down = in_nodes[levels - 2];
+      in_nodes[levels - 1]->up = NULL;
     }
 
     // Find the position to insert the key for each level
@@ -192,7 +201,6 @@ class SkipList {
     return true;
   }
 
-
   /**
  * Implete delete operation.
  * perform logical deletion - mark the base node as deleted.
@@ -204,7 +212,6 @@ class SkipList {
  */
 
   bool Delete(const KeyValuePair &keyPair) {
-  //printf("Delete this key\n");
   // Check if skiplist is empty
   if (IsEmpty()) return false;
   LeafNode* node_to_delete = Find(keyPair);
@@ -217,17 +224,25 @@ class SkipList {
   //if fails should we retry the delete operation?
   //or just return fail?
   //check whether bw_tree implements with any atomic value.
-  bool success = __sync_bool_compare_and_swap(&(node_to_delete->deleted), true, false);
+  bool success = __sync_bool_compare_and_swap(&(node_to_delete->deleted), false, true);
   if (!success) {
     return false;
   }
 
   //going up until we hit the top level for this.
-  InnerNode* prev = NULL;
-  while(node_to_delete != NULL) {
-    prev = node_to_delete;
-    node_to_delete = ()
+  void* prev = NULL;
+  int start_level = 0;
+  void* curr_node = (void*)node_to_delete;
+  while(curr_node != NULL) {
+    prev = (void*)node_to_delete;
+    if(start_level == 0) {
+      curr_node = ((LeafNode*)curr_node)->up;
+    } else {
+      curr_node = ((InnerNode*)curr_node)->up;
+    }
+    start_level++;
   }
+  start_level--;
   /*
   //<the one with key and its predecessor.
   //in case max level changes. - int records the level.
@@ -299,6 +314,7 @@ class SkipList {
     //start to delete this node. search from top to bottom.
     //prev may be a normal inner node, or a head node.
     //but no matter of what, it should give you prev.
+    void* start_node = prev;
     for (int i = start_level; i >= 1; i--) {
       link_level_i:
         //find the node pointing to the current node.
@@ -355,8 +371,15 @@ class SkipList {
   //                         std::function<bool(const void *)> predicate,
   //                         bool *predicate_satisfied);
   //  bool Delete(const KeyType &key, const ValueType &value);
-  //  void GetValue(const KeyType &search_key, std::vector<ValueType>
-  //  &value_list);
+
+  void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
+    auto it = Begin(search_key);
+
+    while (!it.IsEnd() && key_eq_obj(it->first, search_key)) {
+      value_list.push_back(it->second);
+      ++it;
+    }
+  }
   //
   //  ///////////////////////////////////////////////////////////////////
   //  // Garbage Collection
@@ -409,7 +432,10 @@ class SkipList {
      * The iterator will point to the first element in the list, or an
      * end iterator if the list is empty.
      */
-    ForwardIterator(SKIPLIST_TYPE *p_list_p);
+    ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
+      lf_node = (LeafNode *)list_p->head_nodes[0].next;
+      MoveAheadToUndeletedNode();
+    }
 
     /*
      * Constructor - Construct an iterator given a key
@@ -418,17 +444,35 @@ class SkipList {
      * than or equal to the given start key, or an end iterator if the list
      * is empty.
      */
-    ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key);
+    ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
+        : list_p{p_list_p} {
+      LowerBound(start_key);
+    }
 
     /*
      * IsEnd() - Whether the current iterator has reached the end of the list
      */
-    bool IsEnd() const;
+    bool IsEnd() const { return lf_node == NULL; }
 
     /*
      * LowerBound() - Load leaf page whose key >= start_key
      */
-    void LowerBound(const KeyType &start_key_p);
+    void LowerBound(const KeyType &start_key_p) {
+      lf_node = (LeafNode *)list_p->Search(start_key_p, 0);
+
+      if (lf_node == nullptr) {
+        // There is no node whose key <= start_key
+        lf_node = (LeafNode *)list_p->head_nodes[0].next;
+      } else if (list_p->KeyCmpLess(lf_node->pair.first, start_key_p)) {
+        // There is no node whose key == start_key. Now lf_node is the last
+        // one whose key < start_key.
+        lf_node = (LeafNode *)lf_node->next;
+      }
+      MoveAheadToUndeletedNode();
+
+      PL_ASSERT(lf_node == nullptr ||
+                KeyCmpLessEqual(start_key_p, lf_node->pair.first));
+    }
 
     /*
      * operator*() - Return the value reference currently pointed to by this
@@ -460,13 +504,28 @@ class SkipList {
      */
     inline void MoveAheadByOne() {
       PL_ASSERT(lf_node != nullptr);
-      lf_node = (SKIPLIST_TYPE::LeafNode *)lf_node->next;
+      lf_node = (LeafNode *)lf_node->next;
+      MoveAheadToUndeletedNode();
+    }
+
+    /*
+     * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
+     * undeleted node
+     *
+     * If the iterator is currently pointing to an undeleted node, then it
+     * will not be moved. If there is no undeleted node after the iterator,
+     * then it will become an end iterator.
+     */
+    inline void MoveAheadToUndeletedNode() {
+      while (lf_node && lf_node->deleted) {
+        lf_node = (LeafNode *)lf_node->next;
+      }
     }
   };
 
-  //    ///////////////////////////////////////////////////////////////////
-  //    // Utility Funciton
-  //    ///////////////////////////////////////////////////////////////////
+  ///////////////////////////////////////////////////////////////////
+  // Utility Funciton
+  ///////////////////////////////////////////////////////////////////
   bool IsEmpty() { return head_nodes[0].next == NULL; }
 
   void PrintSkipList() {
@@ -494,10 +553,10 @@ class SkipList {
    * returns the first node.
    *
    * Ex: Search(5, 0) returns a pointer to the first 5
-   *   [level 0]: 3 -> 4 -> 4 -> 5 -> 5 -> 6
+   *   [level 0]: -> 3 -> 4 -> 4 -> 5 -> 5 -> 6
    *
    * Ex: Search(5, 0) returns a pointer to the second 4
-   *   [level 0]: 3 -> 4 -> 4 -> 6 -> 6 -> 6
+   *   [level 0]: -> 3 -> 4 -> 4 -> 6 -> 6 -> 6
    *
    *
    * IMPORTANT: It ignores delete flags. If this is not what you want,
@@ -509,6 +568,9 @@ class SkipList {
    *
    * If the there is no node before the key at that level, it returns NULL.
    * (NOTE: It will not return a pointer to HeadNode.)
+   *
+   * Ex: Search(5, 0) returns NULL
+   *   [level 0]: -> 6 -> 7 -> 8
    *
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
@@ -566,6 +628,9 @@ class SkipList {
    * If the there is no node before the key at that level, it returns NULL.
    * (NOTE: It will not return a pointer to HeadNode.)
    *
+   * Ex: SearchLower(5, 0) returns NULL
+   *   [level 0]: -> 6 -> 7 -> 8
+   *
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
    * */
@@ -600,7 +665,6 @@ class SkipList {
       }
     }
   }
-
  /*****
  * We want to find the given keyValuePair to check whether it's in the skiplist.
  * return the exactly leafNode containing the key-value pair.
@@ -723,11 +787,14 @@ void *SearchNode(const void* node, const int level) {
 
   HeadNode head_nodes[MAX_NUM_LEVEL];
 
-  // max_level falls in [0, 31]
-  int max_level;
+  // max_level falls in [0, MAX_NUM_LEVEL]
+  int max_level = 0;
 
  private:
-  void *Search(const KeyType &key, int level);
+  // Used for finding the least significant bit
+  const int MultiplyDeBruijnBitPosition[32] = {
+      0,  1,  28, 2,  29, 14, 24, 3, 30, 22, 20, 15, 25, 17, 4,  8,
+      31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
 };
 
 //}  // namespace index
