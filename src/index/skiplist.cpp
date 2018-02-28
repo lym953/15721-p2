@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <utility>
 #include <iostream>
+#include <set>
 
 namespace peloton {
 namespace index {}  // namespace index
