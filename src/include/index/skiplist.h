@@ -111,9 +111,6 @@ class SkipList {
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
-<<<<<<< Updated upstream
-  bool Insert(const KeyType &key, const ValueType &value);
-=======
 
   bool Insert(const KeyType &key, const ValueType &value) {
     // Check whether we should insert the new entry
@@ -353,7 +350,7 @@ class SkipList {
 
     return true;
   }
->>>>>>> Stashed changes
+
   //  bool ConditionalInsert(const KeyType &key, const ValueType &value,
   //                         std::function<bool(const void *)> predicate,
   //                         bool *predicate_satisfied);
@@ -471,9 +468,6 @@ class SkipList {
   //    // Utility Funciton
   //    ///////////////////////////////////////////////////////////////////
   bool IsEmpty() { return head_nodes[0].next == NULL; }
-<<<<<<< Updated upstream
-  void PrintSkipList();
-=======
 
   void PrintSkipList() {
     for (int i = max_level; i > 0; i--) {
@@ -683,7 +677,6 @@ void *SearchNode(const void* node, const int level) {
   }
   return prev;
 }
->>>>>>> Stashed changes
 
  public:
   // Constructor
