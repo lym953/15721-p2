@@ -42,7 +42,7 @@ class SkipList {
   ///////////////////////////////////////////////////////////////////
   class BaseNode {
    public:
-    BaseNode *next;
+    BaseNode *next = NULL;
   };
 
   class HeadNode : public BaseNode {};
@@ -52,6 +52,9 @@ class SkipList {
     KeyType key;
     BaseNode *down;
     InnerNode *up;
+
+   public:
+    InnerNode(const KeyType &key) : key(key), down(NULL), up(NULL) {}
   };
 
   class LeafNode : public BaseNode {
@@ -59,6 +62,12 @@ class SkipList {
     KeyValuePair pair;
     InnerNode *up;
     bool deleted;
+
+   public:
+    LeafNode(const KeyType &key, const ValueType &value)
+        : up(NULL), deleted(false) {
+      pair = std::make_pair(key, value);
+    }
   };
 
   ///////////////////////////////////////////////////////////////////
@@ -110,30 +119,25 @@ class SkipList {
         MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
 
     // Fill in keys and values and then link the tower
-    LeafNode *lf_node = new LeafNode();
-    lf_node->pair = std::make_pair(key, value);
+    LeafNode *lf_node = new LeafNode(key, value);
 
     // in_nodes[i-1] represents an InnerNode at level i
     InnerNode *in_nodes[levels];
     if (levels > 0) {
-      for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode();
+      for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
       if (levels > 1) {
         // Link InnerNodes
         for (int i = 1; i < levels - 1; i++) {
-          in_nodes[i]->key = key;
           in_nodes[i]->down = in_nodes[i - 1];
           in_nodes[i]->up = in_nodes[i + 1];
         }
         // bottom innernode
-        in_nodes[0]->key = key;
         in_nodes[0]->down = lf_node;
         in_nodes[0]->up = in_nodes[1];
         // top innernode
-        in_nodes[levels - 1]->key = key;
         in_nodes[levels - 1]->down = in_nodes[levels - 2];
         in_nodes[levels - 1]->up = NULL;
       } else {
-        in_nodes[0]->key = key;
         in_nodes[0]->down = lf_node;
         in_nodes[0]->up = NULL;
       }
