@@ -204,7 +204,8 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       }
 
       // Dump needed result from the queue to the vector
-      uint64_t result_size = MIN(limit, result_queue.size());
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
       for (uint64_t i = 0; i < result_size; i++) {
         result.push_back(result_queue.front());
         result_queue.pop();
@@ -247,7 +248,8 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       }
 
       // Dump needed result from the queue to the vector
-      uint64_t result_size = MIN(limit, result_queue.size());
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
       for (uint64_t i = 0; i < result_size; i++) {
         result.push_back(result_queue.front());
         result_queue.pop();
@@ -309,7 +311,8 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       }
 
       // Dump needed result from the queue to the vector
-      uint64_t result_size = MIN(limit, result_queue.size());
+      if (result_queue.size() <= offset) return;
+      uint64_t result_size = result_queue.size() - offset;
       for (uint64_t i = 0; i < result_size; i++) {
         result.push_back(result_queue.front());
         result_queue.pop();

@@ -28,8 +28,6 @@
   SkipListIndex<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
                 ValueEqualityChecker>
 
-#define MIN(x, y) ((x) < (y) ? (x) : (y))
-
 namespace peloton {
 namespace index {
 
