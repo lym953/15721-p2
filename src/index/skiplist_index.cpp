@@ -27,8 +27,9 @@ SKIPLIST_INDEX_TYPE::SkipListIndex(IndexMetadata *metadata)
       // Key "less than" relation comparator
       comparator{},
       // Key equality checker
-      equals{} {
-  // TODO: Add your implementation here
+      equals{},
+
+      container{metadata->HasUniqueKeys(), comparator, equals} {
   return;
 }
 
@@ -70,8 +71,7 @@ bool SKIPLIST_INDEX_TYPE::DeleteEntry(
 
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_INDEX_TYPE::CondInsertEntry(
-    const storage::Tuple *key,
-    ItemPointer *value,
+    const storage::Tuple *key, ItemPointer *value,
     std::function<bool(const void *)> predicate) {
   std::vector<ValueType> values;
   ScanKey(key, values);
