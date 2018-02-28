@@ -97,7 +97,7 @@ class SkipList {
     // Check whether we should insert the new entry
     auto it = Begin(key);
     while (!it.IsEnd() && key_eq_obj(it->first, key)) {
-      if (duplicated_key) return false;
+      if (!duplicated_key) return false;
       if (value_eq_obj(it->second, value)) return false;
       ++it;
     }
