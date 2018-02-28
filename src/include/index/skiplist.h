@@ -17,8 +17,8 @@
 #include <iostream>
 #include <map>
 #include <set>
-//namespace peloton {
-//namespace index {
+namespace peloton {
+namespace index {
 #define PL_ASSERT(x)
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
@@ -106,18 +106,17 @@ class SkipList {
    * key compare equal.
    */
   inline bool KeyCmpEqual(const KeyType &key1, const KeyType &key2) const {
-      return key_eq_obj(key1, key2);
+    return key_eq_obj(key1, key2);
   }
-
 
   /*
    * KeyCmpLessEqual() - Compare two key-value pair for <= relation
    */
-  inline bool KeyValueCmpEqual(const KeyValuePair &kvp1,const KeyValuePair &kvp2) const {
-      return (key_eq_obj(kvp1.first, kvp2.first) &&
-                    value_eq_obj(kvp1.second, kvp2.second));
+  inline bool KeyValueCmpEqual(const KeyValuePair &kvp1,
+                               const KeyValuePair &kvp2) const {
+    return (key_eq_obj(kvp1.first, kvp2.first) &&
+            value_eq_obj(kvp1.second, kvp2.second));
   }
-
 
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
@@ -213,168 +212,172 @@ class SkipList {
   }
 
   /**
- * Implete delete operation.
- * perform logical deletion - mark the base node as deleted.
- * The physical deletion will be performed by garbage collection.
- * The DeleteEntry function should erase only the index entry matching the specific <key, value> pair.
- * Some edge cases: how about I after deletion, I have no nodes in this level? - how should I update this?
- * What if I delete the node in the middle level. - I can't find a prev node pointing to this.
- * should i fail this? Or should I retry?
- */
-
+   * Implete delete operation.
+   * perform logical deletion - mark the base node as deleted.
+   * The physical deletion will be performed by garbage collection.
+   * The DeleteEntry function should erase only the index entry matching the
+   * specific <key, value> pair.
+   */
   bool Delete(const KeyValuePair &keyPair) {
-  // Check if skiplist is empty
-  if (IsEmpty()) return false;
-  LeafNode* node_to_delete = Find(keyPair);
-  //if we can't find such a node return null.
-  if (node_to_delete == NULL) {
-    return false;
-  }
-
-  //update value here.
-  //if fails should we retry the delete operation?
-  //or just return fail?
-  //check whether bw_tree implements with any atomic value.
-  bool success = __sync_bool_compare_and_swap(&(node_to_delete->deleted), false, true);
-  if (!success) {
-    return false;
-  }
-
-  //going up until we hit the top level for this.
-  void* prev = NULL;
-  int start_level = 0;
-  void* curr_node = (void*)node_to_delete;
-  while(curr_node != NULL) {
-    prev = (void*)node_to_delete;
-    if(start_level == 0) {
-      curr_node = ((LeafNode*)curr_node)->up;
-    } else {
-      curr_node = ((InnerNode*)curr_node)->up;
+    // Check if skiplist is empty
+    if (IsEmpty()) return false;
+    LeafNode *node_to_delete = Find(keyPair);
+    // if we can't find such a node return null.
+    if (node_to_delete == NULL) {
+      return false;
     }
-    start_level++;
-  }
-  start_level--;
-  /*
-  //<the one with key and its predecessor.
-  //in case max level changes. - int records the level.
-  std::map<InnerNode*, int> starting_inner_nodes;
-  //store the current levels next ones.
-  std::set<void*> next_level;
-  //find all the node entries that contain the key.
-  //32 sets containing all the nodes that are not connected by the previous one.
-  //if not in previous one's next, adds into it.
-  KeyType key = keyPair.first;
-  for(int level = max_level; level >= 1; level--) {
-      //find the largest node that is less than the current key.
-      void *curr_node = Search(key, level);
-      //no such a key in the current level.
-      if (curr_node == NULL) {
-        continue;
+
+    // update value here.
+    // if fails should we retry the delete operation?
+    // or just return fail?
+    // check whether bw_tree implements with any atomic value.
+    bool success =
+        __sync_bool_compare_and_swap(&(node_to_delete->deleted), false, true);
+    if (!success) {
+      return false;
+    }
+
+    // going up until we hit the top level for this.
+    void *prev = NULL;
+    int start_level = 0;
+    void *curr_node = (void *)node_to_delete;
+    while (curr_node != NULL) {
+      prev = (void *)curr_node;
+      if (start_level == 0) {
+        curr_node = ((LeafNode *)curr_node)->up;
+      } else {
+        curr_node = ((InnerNode *)curr_node)->up;
       }
-      //now the current should be the one that >= key.
-      std::set<void*> tmp_next_level;
-      //loop this level and check.
-       while(curr_node != NULL) {
-          //above base level.
-          if (KeyCmpGreater(((InnerNode*)curr_node)->key, key)) {
+      start_level++;
+    }
+    start_level--;
+    /*
+    //<the one with key and its predecessor.
+    //in case max level changes. - int records the level.
+    std::map<InnerNode*, int> starting_inner_nodes;
+    //store the current levels next ones.
+    std::set<void*> next_level;
+    //find all the node entries that contain the key.
+    //32 sets containing all the nodes that are not connected by the previous
+    one.
+    //if not in previous one's next, adds into it.
+    KeyType key = keyPair.first;
+    for(int level = max_level; level >= 1; level--) {
+        //find the largest node that is less than the current key.
+        void *curr_node = Search(key, level);
+        //no such a key in the current level.
+        if (curr_node == NULL) {
+          continue;
+        }
+        //now the current should be the one that >= key.
+        std::set<void*> tmp_next_level;
+        //loop this level and check.
+         while(curr_node != NULL) {
+            //above base level.
+            if (KeyCmpGreater(((InnerNode*)curr_node)->key, key)) {
+              break;
+            }
+
+            //if is a starting node.
+            if (next_level.find(curr_node) == next_level.end()) {
+                //insert into the starting nodes.
+                starting_inner_nodes.insert(std::make_pair((InnerNode*)curr_node,
+    level));
+                //insert the next level.
+                tmp_next_level.insert((void*)(((InnerNode*)curr_node)->down));
+            }
+            //move to next one.
+            curr_node = (void*)(((BaseNode*)curr_node)->next);
+          }
+          //swing the temp and this.
+          next_level.clear();
+          next_level = tmp_next_level;
+      }
+      //the highest tower node pointing to the key-value pair.
+      void* start_node = NULL;
+      //the level of that tower.
+      int start_level = -1;
+      //iterate through all the starting nodes.
+      for(auto itr = starting_inner_nodes.begin();\
+            itr != starting_inner_nodes.end(); ++itr) {
+          int level = itr->second;
+          void* next_node = itr->first;
+          //traverse down.
+          while(level > 0) {
+              next_node = ((InnerNode*)next_node)->down;
+              level--;
+          }
+          //the base one.
+          if (next_node == (void*)node_to_delete) {
+            start_node = (void*)(itr->first);
+            start_level = itr->second;
             break;
           }
-
-          //if is a starting node.
-          if (next_level.find(curr_node) == next_level.end()) {
-              //insert into the starting nodes.
-              starting_inner_nodes.insert(std::make_pair((InnerNode*)curr_node, level));
-              //insert the next level.
-              tmp_next_level.insert((void*)(((InnerNode*)curr_node)->down));
-          }
-          //move to next one.
-          curr_node = (void*)(((BaseNode*)curr_node)->next);
-        }
-        //swing the temp and this.
-        next_level.clear();
-        next_level = tmp_next_level;
-    }
-    //the highest tower node pointing to the key-value pair.
-    void* start_node = NULL;
-    //the level of that tower.
-    int start_level = -1;
-    //iterate through all the starting nodes.
-    for(auto itr = starting_inner_nodes.begin();\
-          itr != starting_inner_nodes.end(); ++itr) {
-        int level = itr->second;
-        void* next_node = itr->first;
-        //traverse down.
-        while(level > 0) {
-            next_node = ((InnerNode*)next_node)->down;
-            level--;
-        }
-        //the base one.
-        if (next_node == (void*)node_to_delete) {
-          start_node = (void*)(itr->first);
-          start_level = itr->second;
-          break;
-        }
-    }
-
-    //if start node is null. then it means that the node is only at bottom.
-    if (start_node == NULL) {
-        start_node = (void*)node_to_delete;
-        start_level = 0;
-    }
-    */
-    //start to delete this node. search from top to bottom.
-    //prev may be a normal inner node, or a head node.
-    //but no matter of what, it should give you prev.
-    void* start_node = prev;
-    for (int i = start_level; i >= 1; i--) {
-      link_level_i:
-        //find the node pointing to the current node.
-        void *ptr = SearchNode(start_node, i);
-        //possibily header node.
-        if (ptr == NULL) {
-          if (head_nodes[i].next == start_node && ((BaseNode*)start_node)->next == NULL) {
-            int cur_max_level = max_level;
-            if (cur_max_level == i) {
-             //do we care if this set fails?
-             //TODO: don't care if fails right now.
-              __sync_bool_compare_and_swap(&max_level, cur_max_level, cur_max_level-1);
-            }
-          }
-          //set ptr's next to my current's next.
-          while (!__sync_bool_compare_and_swap(&(head_nodes[i].next),\
-                                               (BaseNode*)start_node,\
-                                                ((BaseNode*)start_node)->next)){
-            goto link_level_i;
-          }
-        } else {
-          //set ptr's next to my current's next.
-          while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),\
-                                               (BaseNode*)start_node,\
-                                                ((BaseNode*)start_node)->next)){
-            goto link_level_i;
-          }
-        }
-        //move to next level.
-        start_node = (void*)((InnerNode*)start_node)->down;
-    }
-
-    // cas the bottom one.
-    link_level_0:
-      void *ptr = SearchNode(start_node, 0);
-      if (ptr != NULL) {
-        //we don't reduce max level here because it's already 10.
-        while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next), (BaseNode*)start_node,\
-                                             ((BaseNode*)start_node)->next)) {
-          goto link_level_0;
-        }
-      } else {
-        //we don't reduce max level here because it's already 10.
-        while (!__sync_bool_compare_and_swap(&head_nodes[0].next, (BaseNode*)start_node,\
-                                             ((BaseNode*)start_node)->next)) {
-          goto link_level_0;
-        }
       }
 
+      //if start node is null. then it means that the node is only at bottom.
+      if (start_node == NULL) {
+          start_node = (void*)node_to_delete;
+          start_level = 0;
+      }
+      */
+    // start to delete this node. search from top to bottom.
+    // prev may be a normal inner node, or a head node.
+    // but no matter of what, it should give you prev.
+    void *start_node = prev;
+    for (int i = start_level; i >= 1; i--) {
+    link_level_i:
+      // find the node pointing to the current node.
+      void *ptr = SearchNode(start_node, i);
+      // possibily header node.
+      if (ptr == NULL) {
+        if (head_nodes[i].next == start_node &&
+            ((BaseNode *)start_node)->next == NULL) {
+          int cur_max_level = max_level;
+          if (cur_max_level == i) {
+            // do we care if this set fails?
+            // TODO: don't care if fails right now.
+            __sync_bool_compare_and_swap(&max_level, cur_max_level,
+                                         cur_max_level - 1);
+          }
+        }
+        // set ptr's next to my current's next.
+        while (!__sync_bool_compare_and_swap(&(head_nodes[i].next),
+                                             (BaseNode *)start_node,
+                                             ((BaseNode *)start_node)->next)) {
+          goto link_level_i;
+        }
+      } else {
+        // set ptr's next to my current's next.
+        while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),
+                                             (BaseNode *)start_node,
+                                             ((BaseNode *)start_node)->next)) {
+          goto link_level_i;
+        }
+      }
+      // move to next level.
+      start_node = (void *)((InnerNode *)start_node)->down;
+    }
+
+  // cas the bottom one.
+  link_level_0:
+    void *ptr = SearchNode(start_node, 0);
+    if (ptr != NULL) {
+      // we don't reduce max level here because it's already 10.
+      while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
+                                           (BaseNode *)start_node,
+                                           ((BaseNode *)start_node)->next)) {
+        goto link_level_0;
+      }
+    } else {
+      // we don't reduce max level here because it's already 10.
+      while (!__sync_bool_compare_and_swap(&head_nodes[0].next,
+                                           (BaseNode *)start_node,
+                                           ((BaseNode *)start_node)->next)) {
+        goto link_level_0;
+      }
+    }
+    memory_pool.push_back((void *)node_to_delete);
     return true;
   }
 
@@ -676,82 +679,82 @@ class SkipList {
       }
     }
   }
- /*****
- * We want to find the given keyValuePair to check whether it's in the skiplist.
- * return the exactly leafNode containing the key-value pair.
- **/
-LeafNode *Find(const KeyValuePair &keyPair) {
-  KeyType key = keyPair.first;
-  // Check if skiplist is empty
-  void *curr_node = Search(key, 0);
-  
-  //LeafNode* prev_node = curr_node;
-  //traverse down to find the key value pair.
-  while(curr_node != NULL) {
-    //over.
-    if (KeyCmpGreater(((LeafNode*)curr_node)->pair.first, key)) {
-      return NULL;
-    }
-    //compare key-value pair.
-    if (KeyValueCmpEqual(((LeafNode*)curr_node)->pair, keyPair)) {
-        //if deleted.
-        if (((LeafNode*)curr_node)->deleted) {
+
+  /*****
+   * We want to find the given keyValuePair to check whether it's in the
+   *skiplist.
+   * return the exactly leafNode containing the key-value pair.
+   **/
+  LeafNode *Find(const KeyValuePair &keyPair) {
+    KeyType key = keyPair.first;
+    // Check if skiplist is empty
+    void *curr_node = Search(key, 0);
+
+    // traverse down to find the key value pair.
+    while (curr_node != NULL) {
+      // over.
+      if (KeyCmpGreater(((LeafNode *)curr_node)->pair.first, key)) {
+        return NULL;
+      }
+      // compare key-value pair.
+      if (KeyValueCmpEqual(((LeafNode *)curr_node)->pair, keyPair)) {
+        // if deleted.
+        if (((LeafNode *)curr_node)->deleted) {
           return NULL;
         }
-        //return prev_node;
-        return (LeafNode*)curr_node;
-    }
-    //prev_node = curr_node;
-    curr_node = ((LeafNode*)curr_node)->next;
-  }
-  return NULL;
-}
-
-//searchNode - to find a node in the skipList.
-/*****
- * We want to find the given keyValuePair to check whether it's in the skiplist.
- * return the exactly leafNode containing the key-value pair.
- **/
-void *SearchNode(const void* node, const int level) {
-  void* prev = NULL;
-  KeyType key;
-  if (level == 0) {
-    key = ((LeafNode*)node)->pair.first;
-  } else {
-    key = ((InnerNode*)node)->key;
-  }
-  prev = SearchLower(key, level);
-  //we still want to search from start to avoid false positive.
-  void* curr_node;
-  //if we can't find such a node.
-  if(prev == NULL) {
-    curr_node = head_nodes[level].next;
-  } else {
-    curr_node = ((BaseNode*)prev)->next;
-  }
-
-  //start to find the node.
-  while(curr_node != NULL) {
-    if(level == 0) {
-      if (KeyCmpGreater(((LeafNode*)curr_node)->pair.first, key)) {
-        prev = NULL;
-        break;
+        // return prev_node;
+        return (LeafNode *)curr_node;
       }
+      // prev_node = curr_node;
+      curr_node = ((LeafNode *)curr_node)->next;
+    }
+    return NULL;
+  }
+
+  /*****
+   * We want to find a node in a certain level.
+   * The method returns the previous node pointing to this node.
+   **/
+  void *SearchNode(const void *node, const int level) {
+    void *prev = NULL;
+    KeyType key;
+    if (level == 0) {
+      key = ((LeafNode *)node)->pair.first;
     } else {
-      if (KeyCmpGreater(((InnerNode*)curr_node)->key, key)) {
-        prev = NULL;
+      key = ((InnerNode *)node)->key;
+    }
+    prev = SearchLower(key, level);
+    // we still want to search from start to avoid false positive.
+    void *curr_node;
+    // if we can't find such a node.
+    if (prev == NULL) {
+      curr_node = head_nodes[level].next;
+    } else {
+      curr_node = ((BaseNode *)prev)->next;
+    }
+
+    // start to find the node.
+    while (curr_node != NULL) {
+      if (level == 0) {
+        if (KeyCmpGreater(((LeafNode *)curr_node)->pair.first, key)) {
+          prev = NULL;
+          break;
+        }
+      } else {
+        if (KeyCmpGreater(((InnerNode *)curr_node)->key, key)) {
+          prev = NULL;
+          break;
+        }
+      }
+      if (curr_node == node) {
         break;
       }
+      // move to next one.
+      prev = curr_node;
+      curr_node = ((BaseNode *)curr_node)->next;
     }
-    if(curr_node == node) {
-      break;
-    } 
-    //move to next one.
-    prev = curr_node;
-    curr_node = ((BaseNode*)curr_node)->next;
+    return prev;
   }
-  return prev;
-}
 
  public:
   // Constructor
@@ -801,6 +804,9 @@ void *SearchNode(const void* node, const int level) {
   // max_level falls in [0, MAX_NUM_LEVEL]
   int max_level = 0;
 
+  // tmp memory pool to recyle nodes.
+  std::vector<void *> memory_pool;
+
  private:
   // Used for finding the least significant bit
   const int MultiplyDeBruijnBitPosition[32] = {
@@ -808,5 +814,5 @@ void *SearchNode(const void* node, const int level) {
       31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
 };
 
-//}  // namespace index
-//}  // namespace peloton
+}  // namespace index
+}  // namespace peloton
