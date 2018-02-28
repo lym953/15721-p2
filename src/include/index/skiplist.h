@@ -19,7 +19,7 @@
 #include <set>
 namespace peloton {
 namespace index {
-#define PL_ASSERT(x)
+
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
