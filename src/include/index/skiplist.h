@@ -110,7 +110,7 @@ class SkipList {
         MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
 
     // Fill in keys and values and then link the tower
-    LeafNode *lf_node = new LeafNode;
+    LeafNode *lf_node = new LeafNode();
     lf_node->pair = std::make_pair(key, value);
 
     // in_nodes[i-1] represents an InnerNode at level i
@@ -137,6 +137,7 @@ class SkipList {
         in_nodes[0]->down = lf_node;
         in_nodes[0]->up = NULL;
       }
+      lf_node->up = in_nodes[0];
     }
 
     // Find the position to insert the key for each level
