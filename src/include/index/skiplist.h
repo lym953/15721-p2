@@ -356,10 +356,10 @@ class SkipList {
    * returns the first node.
    *
    * Ex: Search(5, 0) returns a pointer to the first 5
-   *   [level 0]: 3 -> 4 -> 4 -> 5 -> 5 -> 6
+   *   [level 0]: -> 3 -> 4 -> 4 -> 5 -> 5 -> 6
    *
    * Ex: Search(5, 0) returns a pointer to the second 4
-   *   [level 0]: 3 -> 4 -> 4 -> 6 -> 6 -> 6
+   *   [level 0]: -> 3 -> 4 -> 4 -> 6 -> 6 -> 6
    *
    *
    * IMPORTANT: It ignores delete flags. If this is not what you want,
@@ -371,6 +371,9 @@ class SkipList {
    *
    * If the there is no node before the key at that level, it returns NULL.
    * (NOTE: It will not return a pointer to HeadNode.)
+   *
+   * Ex: Search(5, 0) returns NULL
+   *   [level 0]: -> 6 -> 7 -> 8
    *
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
@@ -427,6 +430,9 @@ class SkipList {
    *
    * If the there is no node before the key at that level, it returns NULL.
    * (NOTE: It will not return a pointer to HeadNode.)
+   *
+   * Ex: SearchLower(5, 0) returns NULL
+   *   [level 0]: -> 6 -> 7 -> 8
    *
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
