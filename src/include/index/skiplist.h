@@ -706,6 +706,9 @@ class SkipList {
       }
       std::cout << "Correct" << std::endl;
     }
+
+    // Check if InnerNode A -> InnerNode B, then it should be the case that
+    // LeafNode A appears before LeafNode B
     return true;
   }
 
@@ -918,6 +921,7 @@ class SkipList {
 
   // Destructor
   ~SkipList() {
+    // Free alive nodes
     for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
       InnerNode *cur = (InnerNode *)head_nodes[i].next;
       InnerNode *prev = NULL;
@@ -934,6 +938,8 @@ class SkipList {
       cur = (LeafNode *)(cur->next);
       delete prev;
     }
+
+    // TODO: Free dead nodes, i.e., nodes are in the memory pool.
   }
 
  public:
