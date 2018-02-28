@@ -19,7 +19,6 @@
 #include <set>
 namespace peloton {
 namespace index {
-#define PL_ASSERT(x)
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
@@ -103,14 +102,14 @@ class SkipList {
   }
 
   /**
-   * key compare equal.
+   * KeyCmpEqual() - Comapre two key pair for == relation
    */
   inline bool KeyCmpEqual(const KeyType &key1, const KeyType &key2) const {
     return key_eq_obj(key1, key2);
   }
 
   /*
-   * KeyCmpLessEqual() - Compare two key-value pair for <= relation
+   * KeyCmpLessEqual() - Compare two key-value pair for == relation
    */
   inline bool KeyValueCmpEqual(const KeyValuePair &kvp1,
                                const KeyValuePair &kvp2) const {
@@ -227,10 +226,7 @@ class SkipList {
       return false;
     }
 
-    // update value here.
-    // if fails should we retry the delete operation?
-    // or just return fail?
-    // check whether bw_tree implements with any atomic value.
+    // fail tor thread-safe
     bool success =
         __sync_bool_compare_and_swap(&(node_to_delete->deleted), false, true);
     if (!success) {
@@ -363,14 +359,14 @@ class SkipList {
   link_level_0:
     void *ptr = SearchNode(start_node, 0);
     if (ptr != NULL) {
-      // we don't reduce max level here because it's already 10.
+      // we don't reduce max level here because it's already 0.
       while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
                                            (BaseNode *)start_node,
                                            ((BaseNode *)start_node)->next)) {
         goto link_level_0;
       }
     } else {
-      // we don't reduce max level here because it's already 10.
+      // we don't reduce max level here because it's already 0.
       while (!__sync_bool_compare_and_swap(&head_nodes[0].next,
                                            (BaseNode *)start_node,
                                            ((BaseNode *)start_node)->next)) {
@@ -682,30 +678,30 @@ class SkipList {
 
   /*****
    * We want to find the given keyValuePair to check whether it's in the
-   *skiplist.
+   * skiplist.
    * return the exactly leafNode containing the key-value pair.
    **/
   LeafNode *Find(const KeyValuePair &keyPair) {
     KeyType key = keyPair.first;
-    // Check if skiplist is empty
+    // search for the first node with the key == key.
     void *curr_node = Search(key, 0);
 
     // traverse down to find the key value pair.
     while (curr_node != NULL) {
       // over.
       if (KeyCmpGreater(((LeafNode *)curr_node)->pair.first, key)) {
-        return NULL;
+        break;
       }
       // compare key-value pair.
       if (KeyValueCmpEqual(((LeafNode *)curr_node)->pair, keyPair)) {
-        // if deleted.
-        if (((LeafNode *)curr_node)->deleted) {
-          return NULL;
+        // if not deleted. return node.
+        if (!(((LeafNode *)curr_node)->deleted)) {
+          return (LeafNode *)curr_node;
         }
-        // return prev_node;
-        return (LeafNode *)curr_node;
       }
-      // prev_node = curr_node;
+      // move to next one
+      // don't want to fail the case that [1, 2, deleted] [1, 2] inserted after
+      // that.
       curr_node = ((LeafNode *)curr_node)->next;
     }
     return NULL;
