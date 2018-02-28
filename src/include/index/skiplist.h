@@ -117,20 +117,26 @@ class SkipList {
     InnerNode *in_nodes[levels];
     if (levels > 0) {
       for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode();
-      // Link InnerNodes
-      for (int i = 1; i < levels - 1; i++) {
-        in_nodes[i]->key = key;
-        in_nodes[i]->down = in_nodes[i - 1];
-        in_nodes[i]->up = in_nodes[i + 1];
+      if (levels > 1) {
+        // Link InnerNodes
+        for (int i = 1; i < levels - 1; i++) {
+          in_nodes[i]->key = key;
+          in_nodes[i]->down = in_nodes[i - 1];
+          in_nodes[i]->up = in_nodes[i + 1];
+        }
+        // bottom innernode
+        in_nodes[0]->key = key;
+        in_nodes[0]->down = lf_node;
+        in_nodes[0]->up = in_nodes[1];
+        // top innernode
+        in_nodes[levels - 1]->key = key;
+        in_nodes[levels - 1]->down = in_nodes[levels - 2];
+        in_nodes[levels - 1]->up = NULL;
+      } else {
+        in_nodes[0]->key = key;
+        in_nodes[0]->down = lf_node;
+        in_nodes[0]->up = NULL;
       }
-      // bottom innernode
-      in_nodes[0]->key = key;
-      in_nodes[0]->down = lf_node;
-      in_nodes[0]->up = in_nodes[1];
-      // top innernode
-      in_nodes[levels - 1]->key = key;
-      in_nodes[levels - 1]->down = in_nodes[levels - 2];
-      in_nodes[levels - 1]->up = NULL;
     }
 
     // Find the position to insert the key for each level
