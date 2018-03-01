@@ -646,14 +646,18 @@ class SkipList {
     }
     std::cout << "Correct" << std::endl;
 
-    // Check if it's sorted at each level
-    std::cout << "Checking if it's sorted at each level ... " << std::flush;
+    // Check if it's sorted at each level (strictly increasings)
+    std::cout << "Checking if it's strictly sorted at each level ... "
+              << std::flush;
     for (int i = 1; i < MAX_NUM_LEVEL; i++) {
       InnerNode *ptr = (InnerNode *)(head_nodes[i].next);
       KeyType prev_key;
-      if (ptr != NULL) prev_key = ptr->key;
+      if (ptr != NULL) {
+        prev_key = ptr->key;
+        ptr = (InnerNode *)(ptr->next);
+      }
       while (ptr) {
-        if (!KeyCmpLessEqual(prev_key, ptr->key)) {
+        if (!KeyCmpLess(prev_key, ptr->key)) {
           std::cout << "Failed" << std::endl;
           return false;
         }
@@ -663,13 +667,16 @@ class SkipList {
     }
     LeafNode *ptr = (LeafNode *)(head_nodes[0].next);
     KeyType prev_key;
-    if (ptr != NULL) prev_key = ptr->pair.first;
+    if (ptr != NULL) {
+      prev_key = ptr->key;
+      ptr = (LeafNode *)(ptr->next);
+    }
     while (ptr) {
-      if (!KeyCmpLessEqual(prev_key, ptr->pair.first)) {
+      if (!KeyCmpLess(prev_key, ptr->key)) {
         std::cout << "Failed" << std::endl;
         return false;
       }
-      prev_key = ptr->pair.first;
+      prev_key = ptr->key;
       ptr = (LeafNode *)(ptr->next);
     }
     std::cout << "Correct" << std::endl;
@@ -689,7 +696,7 @@ class SkipList {
             return false;
           }
         }
-        if (!key_eq_obj(((LeafNode *)ptr)->pair.first, cur->key)) {
+        if (!key_eq_obj(((LeafNode *)ptr)->key, cur->key)) {
           std::cout << "Failed  (LeafNode has difference key than InnerNode)"
                     << std::endl;
           return false;
@@ -699,91 +706,10 @@ class SkipList {
     }
     std::cout << "Correct" << std::endl;
 
-    // Check if each LeafNode can reach it's highest InnerNode by following
-    // the up pointer
-    std::cout << "Checking if LeafNode can go up and find its InnerNode ... "
-              << std::flush;
-    ptr = (LeafNode *)(head_nodes[0].next);
-    while (ptr != NULL) {
-      InnerNode *cur = ptr->up;
-      InnerNode *prev = NULL;
-      while (cur != NULL) {
-        prev = cur;
-        cur = cur->up;
-      }
-      if (prev != NULL && !key_eq_obj(prev->key, ptr->pair.first)) {
-        std::cout << "Failed  (LeafNode has difference key than InnerNode)"
-                  << std::endl;
-        return false;
-      }
-      ptr = (LeafNode *)(ptr->next);
-    }
-    std::cout << "Correct" << std::endl;
+    // TODO: Check if there's duplicated keys when duplicates are not allowed
 
-    // Check if there's duplicated keys when duplicates are not allowed
-    if (!duplicated_key) {
-      std::cout << "Checking if no duplicated keys ... " << std::flush;
-      ptr = (LeafNode *)(head_nodes[0].next);
-      bool deleted = false;
-      if (ptr != NULL) {
-        prev_key = ptr->pair.first;
-        deleted = ptr->deleted;
-        ptr = (LeafNode *)(ptr->next);
-      }
-      while (ptr != NULL) {
-        if (key_eq_obj(ptr->pair.first, prev_key) && !deleted &&
-            !ptr->deleted) {
-          std::cout << "Failed  (Contain duplicated keys)" << std::endl;
-          return false;
-        }
-        if (key_eq_obj(prev_key, ptr->pair.first)) {
-          deleted = deleted && ptr->deleted;
-        } else {
-          deleted = ptr->deleted;
-        }
-        prev_key = ptr->pair.first;
-        ptr = (LeafNode *)(ptr->next);
-      }
-      std::cout << "Correct" << std::endl;
-    }
-
-    // Check if there's duplicated (key, value) pair when duplicates are
+    // TODO: Check if there's duplicated (key, value) pair when duplicates are
     // allowed
-    if (duplicated_key) {
-      std::cout << "Checking if no duplicated (key, value) pairs ... "
-                << std::flush;
-      ptr = (LeafNode *)(head_nodes[0].next);
-      bool deleted = false;
-      ValueType prev_value;
-      if (ptr != NULL) {
-        prev_key = ptr->pair.first;
-        prev_value = ptr->pair.second;
-        deleted = ptr->deleted;
-        ptr = (LeafNode *)(ptr->next);
-      }
-      while (ptr != NULL) {
-        if (key_eq_obj(ptr->pair.first, prev_key) &&
-            value_eq_obj(ptr->pair.second, prev_value) && !deleted &&
-            !ptr->deleted) {
-          std::cout << "Failed  (Contain duplicated (key,value) pairs)"
-                    << std::endl;
-          return false;
-        }
-        if (key_eq_obj(prev_key, ptr->pair.first) &&
-            value_eq_obj(prev_value, ptr->pair.second)) {
-          deleted = deleted && ptr->deleted;
-        } else {
-          deleted = ptr->deleted;
-        }
-        prev_key = ptr->pair.first;
-        prev_value = ptr->pair.second;
-        ptr = (LeafNode *)(ptr->next);
-      }
-      std::cout << "Correct" << std::endl;
-    }
-
-    // Check if InnerNode A -> InnerNode B, then it should be the case that
-    // LeafNode A appears before LeafNode B
     return true;
   }
 
