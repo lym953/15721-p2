@@ -858,7 +858,7 @@ class SkipList {
     void *prev = NULL;
     KeyType key;
     if (level == 0) {
-      key = ((LeafNode *)node)->pair.first;
+      key = ((LeafNode *)node)->key;
     } else {
       key = ((InnerNode *)node)->key;
     }
@@ -875,7 +875,7 @@ class SkipList {
     // start to find the node.
     while (curr_node != NULL) {
       if (level == 0) {
-        if (KeyCmpGreater(((LeafNode *)curr_node)->pair.first, key)) {
+        if (KeyCmpGreater(((LeafNode *)curr_node)->key, key)) {
           prev = NULL;
           break;
         }
