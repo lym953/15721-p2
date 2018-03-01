@@ -145,7 +145,7 @@ class SkipList {
       ptr = (LeafNode *)(head_nodes[0].next);
       while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
         bool same_key = key_eq_obj(ptr->key, key);
-        bool deleted = ptr->head == NULL;
+        bool deleted = ptr->head->next == NULL;
         if (same_key && !deleted) {
           valid = false;
           return ptr;
@@ -159,7 +159,7 @@ class SkipList {
       LeafNode *prev = ptr;
       while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
         bool same_key = key_eq_obj(ptr->key, key);
-        bool deleted = ptr->head == NULL;
+        bool deleted = ptr->head->next == NULL;
         if (same_key && !deleted) {
           valid = false;
           return ptr;
@@ -175,8 +175,10 @@ class SkipList {
   bool Insert(const KeyType &key, const ValueType &value) {
     // Create LeafNode and ValueNode and append
     LeafNode *lf_node = new LeafNode(key);
+    ValueNode *dummy = new ValueNode(value);  // this value is useless
     ValueNode *v_node = new ValueNode(value);
-    lf_node->head = v_node;
+    lf_node->head = dummy;
+    dummy->next = v_node;
 
   // Find the place to insert LeafNode
   search_place_to_insert:
@@ -250,11 +252,12 @@ class SkipList {
       if (!duplicated_key) {
         delete lf_node;
         delete v_node;
+        delete dummy;
         return false;
       }
 
       // we allow duplicated key
-      v_node->next = ((LeafNode *)leaf_start_insert)->head;
+      v_node->next = ((LeafNode *)leaf_start_insert)->head->next;
       if (v_node->next == NULL) goto search_place_to_insert;
       // check if already contains the same value
       ValueNode *ptr = (ValueNode *)(v_node->next);
@@ -269,20 +272,23 @@ class SkipList {
       if (same) {
         delete lf_node;
         delete v_node;
+        delete dummy;
         return false;
       } else {
         // update head so that it points to you
         while (!__sync_bool_compare_and_swap(
-                   &(((LeafNode *)leaf_start_insert)->head),
+                   &(((LeafNode *)leaf_start_insert)->head->next),
                    (ValueNode *)(v_node->next), v_node)) {
           goto search_place_to_insert;
         }
         delete lf_node;
+        delete dummy;
         return true;
       }
     }
     return true;
   }
+
   /**
    * Implete delete operation.
    * perform logical deletion - mark the base node as deleted.
@@ -626,7 +632,7 @@ class SkipList {
     while (cur != NULL) {
       std::cout << "(" << cur->key << ", [";
       // print value chain
-      ValueNode *ptr = cur->head;
+      ValueNode *ptr = (ValueNode *)(cur->head->next);
       while (ptr != NULL) {
         std::cout << ptr->value << ", ";
         ptr = (ValueNode *)(ptr->next);
