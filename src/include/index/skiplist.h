@@ -139,7 +139,7 @@ class SkipList {
   }
 
   /**
-   * KeyCmpEqual() - Comapre two key pair for == relation
+   * KeyCmpEqual() - Compare two key pair for == relation
    */
   inline bool KeyCmpEqual(const KeyType &key1, const KeyType &key2) const {
     return key_eq_obj(key1, key2);
@@ -548,9 +548,9 @@ class SkipList {
       }
       val_node = (ValueNode *)lf_node->head->next;
       MoveAheadToUndeletedNode();
-
-      PL_ASSERT(lf_node == nullptr ||
-                KeyCmpLessEqual(start_key_p, lf_node->key));
+//
+//      PL_ASSERT(lf_node == nullptr ||
+//                KeyCmpLessEqual(start_key_p, lf_node->key));
     }
 
     /*
