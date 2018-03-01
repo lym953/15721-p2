@@ -27,7 +27,7 @@ class SkipListIndexTests : public PelotonTest {};
 
 TEST_F(SkipListIndexTests, BasicTest) {
   TestingIndexUtil::BasicTest(IndexType::SKIPLIST);
-  EXPECT_EQ(2, 1+1);
+  EXPECT_EQ(2, 1 + 1);
 }
 
 TEST_F(SkipListIndexTests, MultiMapInsertTest) {
