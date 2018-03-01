@@ -1304,7 +1304,25 @@ class SkipList {
     }
 
     void FreeNode(const BaseNode *node_p) {
-      delete node_p;
+      switch (node_p->GetNodeType()) {
+        case NodeType::ValueNode: {
+          delete (ValueNode *)(node_p);
+          break;
+        }
+        case NodeType::LeafNode: {
+          // need to remove dummy value node
+          delete (((LeafNode *)node_p)->head);
+          delete (LeafNode *)(node_p);
+          break;
+        }
+        case NodeType::InnerNode: {
+          delete (InnerNode *)(node_p);
+          break;
+        }
+        default:
+          LOG_DEBUG("We never delete other types of nodes");
+          break;
+      }
       return;
     }
 
