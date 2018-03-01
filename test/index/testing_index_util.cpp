@@ -104,7 +104,7 @@ void TestingIndexUtil::UniqueKeyInsertTest(const IndexType index_type) {
 
   // INDEX
   std::unique_ptr<index::Index, void (*)(index::Index *)> index(
-      TestingIndexUtil::BuildIndex(index_type, false), DestroyIndex);
+      TestingIndexUtil::BuildIndex(index_type, true), DestroyIndex);
   const catalog::Schema *key_schema = index->GetKeySchema();
 
   // Single threaded test
@@ -278,7 +278,7 @@ void TestingIndexUtil::UniqueKeyMultiThreadedTest(const IndexType index_type) {
 
   // INDEX
   std::unique_ptr<index::Index, void (*)(index::Index *)> index(
-      TestingIndexUtil::BuildIndex(index_type, false), DestroyIndex);
+      TestingIndexUtil::BuildIndex(index_type, true), DestroyIndex);
   const catalog::Schema *key_schema = index->GetKeySchema();
 
   // Parallel Test
