@@ -134,93 +134,125 @@ class SkipList {
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
 
-  bool Insert(const KeyType &key, const ValueType &value) {
-    // Check whether we should insert the new entry
-    auto it = Begin(key);
-    while (!it.IsEnd() && key_eq_obj(it->first, key)) {
-      if (!duplicated_key) return false;
-      if (value_eq_obj(it->second, value)) return false;
-      ++it;
-    }
-
-    // Determine the height of the tower
-    int v = rand();
-    int levels =
-        MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
-
-    // Fill in keys and values and then link the tower
-    LeafNode *lf_node = new LeafNode(key, value);
-
-    // in_nodes[i-1] represents an InnerNode at level i
-    InnerNode *in_nodes[levels];
-    if (levels > 0) {
-      for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
-      if (levels > 1) {
-        // Link InnerNodes
-        for (int i = 1; i < levels - 1; i++) {
-          in_nodes[i]->down = in_nodes[i - 1];
-          in_nodes[i]->up = in_nodes[i + 1];
-        }
-        // bottom innernode
-        in_nodes[0]->down = lf_node;
-        in_nodes[0]->up = in_nodes[1];
-        // top innernode
-        in_nodes[levels - 1]->down = in_nodes[levels - 2];
-        in_nodes[levels - 1]->up = NULL;
-      } else {
-        in_nodes[0]->down = lf_node;
-        in_nodes[0]->up = NULL;
-      }
-      lf_node->up = in_nodes[0];
-    }
-
-    // Find the position to insert the key for each level
-    void *ptr;
-  link_level_0:
-    ptr = SearchLower(key, 0);
+  BaseNode *SearchPlaceToInsertLeaf(const KeyType &key, bool &valid) {
+    LeafNode *ptr = (LeafNode *)SearchLower(key, 0);
     if (ptr == NULL) {
-      lf_node->next = head_nodes[0].next;
-      while (!__sync_bool_compare_and_swap(&head_nodes[0].next, lf_node->next,
-                                           lf_node)) {
-        goto link_level_0;
+      if (head_nodes[0].next == NULL) {
+        valid = true;
+        return &head_nodes[0];
       }
+      BaseNode *prev = &head_nodes[0];
+      ptr = (LeafNode *)(head_nodes[0].next);
+      while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
+        bool same_key = key_eq_obj(ptr->key, key);
+        bool deleted = ptr->head == NULL;
+        if (same_key && !deleted) {
+          valid = false;
+          return ptr;
+        }
+        prev = ptr;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      valid = true;
+      return prev;
     } else {
-      lf_node->next = ((LeafNode *)ptr)->next;
-      while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
+      LeafNode *prev = ptr;
+      while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
+        bool same_key = key_eq_obj(ptr->key, key);
+        bool deleted = ptr->head == NULL;
+        if (same_key && !deleted) {
+          valid = false;
+          return ptr;
+        }
+        prev = ptr;
+        ptr = (LeafNode *)(ptr->next);
+      }
+      valid = true;
+      return prev;
+    }
+  }
+
+  bool Insert(const KeyType &key, const ValueType &value) {
+    // Create LeafNode and ValueNode and append
+    LeafNode *lf_node = new LeafNode(key);
+    ValueNode *v_node = new ValueNode(value);
+    lf_node->head = v_node;
+
+  // Find the place to insert LeafNode
+  search_place_to_insert:
+    bool is_valid;
+    BaseNode *leaf_start_insert = SearchPlaceToInsertLeaf(key, is_valid);
+    if (is_valid) {
+      lf_node->next = leaf_start_insert->next;
+      if (lf_node->next &&
+          !KeyCmpGreater(((LeafNode *)(lf_node->next))->key, key)) {
+        goto search_place_to_insert;
+      }
+      while (!__sync_bool_compare_and_swap(&leaf_start_insert->next,
                                            lf_node->next, lf_node)) {
-        goto link_level_0;
+        goto search_place_to_insert;
       }
-    }
+      return true;
+    } else {
+      // someone has insert this leafNode
+      if (!duplicated_key) {
+        delete lf_node;
+        delete v_node;
+        return false;
+      }
 
-    for (int i = 1; i <= levels; i++) {
-    link_level_i:
-      void *ptr = SearchLower(key, i);
-      if (ptr == NULL) {
-        in_nodes[i - 1]->next = head_nodes[i].next;
-        while (!__sync_bool_compare_and_swap(&head_nodes[i].next,
-                                             in_nodes[i - 1]->next,
-                                             in_nodes[i - 1])) {
-          goto link_level_i;
+      // we allow duplicated key
+      v_node->next = ((LeafNode *)leaf_start_insert)->head;
+      if (v_node->next == NULL) goto search_place_to_insert;
+      // check if already contains the same value
+      ValueNode *ptr = (ValueNode *)(v_node->next);
+      bool same = false;
+      while (ptr != NULL) {
+        if (value_eq_obj(ptr->value, value)) {
+          same = true;
+          break;
         }
+        ptr = (ValueNode *)(ptr->next);
+      }
+      // std::cout << same << " Yes, it has the same value" << std::endl;
+      if (same) {
+        delete lf_node;
+        delete v_node;
+        return false;
       } else {
-        in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
-        while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),
-                                             in_nodes[i - 1]->next,
-                                             in_nodes[i - 1])) {
-          goto link_level_i;
+        // update head so that it points to you
+        while (!__sync_bool_compare_and_swap(
+                   &(((LeafNode *)leaf_start_insert)->head), v_node->next,
+                   v_node)) {
+          goto search_place_to_insert;
         }
-      }
-    }
-  // Add additional levels if the tower exceeds the maximum height
-  update_max_level:
-    int cur_max_level = max_level;
-    if (levels > cur_max_level) {
-      while (!__sync_bool_compare_and_swap(&max_level, cur_max_level, levels)) {
-        goto update_max_level;
+        delete lf_node;
+        return true;
       }
     }
 
-    return true;
+    // // Determine the height of the tower
+    // int v = rand();
+    // int levels =
+    //     MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >>
+    //     27];
+    // InnerNode *in_nodes[levels];
+    // if (levels > 0) {
+    //   for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
+    //   if (levels > 1) {
+    //     // Link InnerNodes
+    //     for (int i = 1; i < levels - 1; i++) {
+    //       in_nodes[i]->down = in_nodes[i - 1];
+    //     }
+    //     // bottom innernode
+    //     in_nodes[0]->down = lf_node;
+    //     // top innernode
+    //     in_nodes[levels - 1]->down = in_nodes[levels - 2];
+    //   } else {
+    //     in_nodes[0]->down = lf_node;
+    //   }
+    // }
+    // return true;
   }
 
   /**
