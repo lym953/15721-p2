@@ -481,6 +481,8 @@ class SkipList {
 
       epoch_manager.AddGarbageNode((BaseNode *)start_node);
     }
+
+    epoch_manager.LeaveEpoch(epoch_node_p);
     // memory_pool.push_back((void *)node_to_delete);
     return true;
   }
