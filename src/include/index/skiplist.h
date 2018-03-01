@@ -945,6 +945,14 @@ class SkipList {
     while (cur != NULL) {
       prev = cur;
       cur = (LeafNode *)(cur->next);
+      // free value chain
+      ValueNode *val_cur = prev->head;
+      ValueNode *val_prev = NULL;
+      while (val_cur != NULL) {
+        val_prev = val_cur;
+        val_cur = (ValueNode *)(val_cur->next);
+        delete val_prev;
+      }
       delete prev;
     }
 
