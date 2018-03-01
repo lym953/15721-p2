@@ -108,7 +108,7 @@ void SKIPLIST_INDEX_TYPE::Scan(
     container.GetValue(point_query_key, result);
   } else if (csp_p->IsFullIndexScan()) {
     for (auto it = container.Begin(); !it.IsEnd(); ++it) {
-      result.push_back(it->second);
+      result.push_back(it.GetValue());
     }
   } else {
     const storage::Tuple *low_key_p = csp_p->GetLowKey();
@@ -125,9 +125,9 @@ void SKIPLIST_INDEX_TYPE::Scan(
     // We use skiplist Begin() to first reach the lower bound
     // of the search key
     for (auto it = container.Begin(index_low_key);
-         !it.IsEnd() && container.KeyCmpLessEqual(it->first, index_high_key);
+         !it.IsEnd() && container.KeyCmpLessEqual(it.GetKey(), index_high_key);
          ++it) {
-      result.push_back(it->second);
+      result.push_back(it.GetValue());
     }
   }  // if is full scan
 
@@ -172,16 +172,17 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
 
       // Skip some nodes to reach offset
       for (uint64_t i = 0; i < offset; i++, ++it) {
-        if (it.IsEnd() || !container.key_eq_obj(it->first, point_query_key)) {
+        if (it.IsEnd() || !container.key_eq_obj(it.GetKey(), point_query_key)) {
           return;
         }
       }
 
       // Collect results
-      for (uint64_t i = 0; i < limit && !it.IsEnd() &&
-                               container.key_eq_obj(it->first, point_query_key);
+      for (uint64_t i = 0;
+           i < limit && !it.IsEnd() &&
+               container.key_eq_obj(it.GetKey(), point_query_key);
            i++, ++it) {
-        result.push_back(it->second);
+        result.push_back(it.GetValue());
       }
     } else {
       // Case 1.2: point query + backward scan
@@ -189,17 +190,19 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       std::queue<ValueType> result_queue;
 
       // Collect the first (limit + offset) nodes
-      for (uint64_t i = 0; i < limit + offset && !it.IsEnd() &&
-                               container.key_eq_obj(it->first, point_query_key);
+      for (uint64_t i = 0;
+           i < limit + offset && !it.IsEnd() &&
+               container.key_eq_obj(it.GetKey(), point_query_key);
            i++, ++it) {
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
       }
 
       // Translate the window until it reaches the end of the list or the right
       // end of window does not satiafy the query criterion
-      while (!it.IsEnd() && container.key_eq_obj(it->first, point_query_key)) {
+      while (!it.IsEnd() &&
+             container.key_eq_obj(it.GetKey(), point_query_key)) {
         result_queue.pop();
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
         ++it;
       }
 
@@ -228,7 +231,7 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
 
       // Collect results
       for (uint64_t i = 0; i < limit && !it.IsEnd(); i++, ++it) {
-        result.push_back(it->second);
+        result.push_back(it.GetValue());
       }
     } else {
       // Case 2.2: full scan + backward scan
@@ -237,13 +240,13 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
 
       // Collect the first (limit + offset) nodes
       for (uint64_t i = 0; i < limit + offset && !it.IsEnd(); i++, ++it) {
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
       }
 
       // Translate the window until it reaches the end of the list
       while (!it.IsEnd()) {
         result_queue.pop();
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
         ++it;
       }
 
@@ -284,9 +287,9 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       // Collect results
       for (uint64_t i = 0;
            i < limit && !it.IsEnd() &&
-               container.KeyCmpLessEqual(it->first, index_high_key);
+               container.KeyCmpLessEqual(it.GetKey(), index_high_key);
            i++, ++it) {
-        result.push_back(it->second);
+        result.push_back(it.GetValue());
       }
     } else {
       // Case 3.2: range query + backward scan
@@ -296,17 +299,17 @@ void SKIPLIST_INDEX_TYPE::ScanLimit(
       // Collect the first (limit + offset) nodes
       for (uint64_t i = 0;
            i < limit + offset && !it.IsEnd() &&
-               container.KeyCmpLessEqual(it->first, index_high_key);
+               container.KeyCmpLessEqual(it.GetKey(), index_high_key);
            i++, ++it) {
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
       }
 
       // Translate the window until the right end of window does not satiafy the
       // query criterion
       while (!it.IsEnd() &&
-             container.KeyCmpLessEqual(it->first, index_high_key)) {
+             container.KeyCmpLessEqual(it.GetKey(), index_high_key)) {
         result_queue.pop();
-        result_queue.push(it->second);
+        result_queue.push(it.GetValue());
         ++it;
       }
 
@@ -329,7 +332,7 @@ void SKIPLIST_INDEX_TYPE::ScanAllKeys(std::vector<ValueType> &result) {
 
   // scan all entries
   while (it.IsEnd() == false) {
-    result.push_back(it->second);
+    result.push_back(it.GetValue());
     ++it;
   }
 
