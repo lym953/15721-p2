@@ -353,16 +353,22 @@ class SkipList {
    * specific <key, value> pair.
    */
   bool Delete(const KeyType &key, const ValueType &value) {
+    EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
     // Check if skiplist is empty
-    if (IsEmpty()) return false;
+    if (IsEmpty()) {
+      epoch_manager.LeaveEpoch(epoch_node_p);
+      return false;
+    }
     // find the leafNode to delete
     LeafNode *leafNode = (LeafNode *)Search(key, 0);
     if (leafNode == NULL || !KeyCmpEqual(leafNode->key, key)) {
+      epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
     // find the node to be deleted
     ValueNode *node_to_delete = SearchValueNode(leafNode, value, false);
     if (node_to_delete == NULL) {
+      epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
 
@@ -372,6 +378,7 @@ class SkipList {
     ValueNode *findPrev = SearchValueNode(leafNode, value, true);
     // this value already has been deleted by another thread.
     if (findPrev == NULL) {
+      epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
     // cas this value node.
@@ -380,6 +387,8 @@ class SkipList {
                                          node_to_delete->next)) {
       goto delete_value_node;
     }
+
+    epoch_manager.AddGarbageNode(node_to_delete);
 
     // check whether we need to delete the whole branch.
     bool delete_branch = false;
@@ -444,7 +453,11 @@ class SkipList {
           }
         }
         // move to next level.
+        BaseNode *temp = (BaseNode *)start_node;
+
         start_node = (void *)((InnerNode *)start_node)->down;
+
+        epoch_manager.AddGarbageNode(temp);
       }
 
     // cas the bottom one.
@@ -465,6 +478,8 @@ class SkipList {
           goto link_level_0;
         }
       }
+
+      epoch_manager.AddGarbageNode((BaseNode *)start_node);
     }
     // memory_pool.push_back((void *)node_to_delete);
     return true;
