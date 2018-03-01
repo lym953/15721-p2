@@ -85,7 +85,7 @@ class SkipList {
   };
 
   //Used for garbage collection
-  class InnerGCNode : public BaseNode {
+  /*class InnerGCNode : public BaseNode {
     public:
       InnerNode* node;
     public:
@@ -107,7 +107,7 @@ class SkipList {
     public:
       ValueGCNode(const ValueNode* node)
         : node(node) {};
-  };
+  };*/
 
   ///////////////////////////////////////////////////////////////////
   // Key Comparison Member Functions
@@ -154,6 +154,15 @@ class SkipList {
     return (key_eq_obj(kvp1.first, kvp2.first) &&
             value_eq_obj(kvp1.second, kvp2.second));
   }
+
+  /**
+   * ValueCmpEqual() - Compare two values for == relation
+   */
+   inline bool ValueCmpEqual(const ValueType &val1, 
+                              const ValueType &val2) const{
+      return value_eq_obj(val1, val2);
+   }
+
 
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
@@ -290,13 +299,13 @@ class SkipList {
   bool Delete(const KeyType &key, const ValueType &value) {
     // Check if skiplist is empty
     if (IsEmpty()) return false;
-    bool valid;
-    LeafNode* node_to_delete = SearchPlaceToDeleteLeaf(key, &valid);
-    if (!valid) {
+    //find the leafNode to delete
+    LeafNode* leafNode = (LeafNode*)Search(key, 0);
+    if (leafNode == NULL || KeyCmpEqual(leafNode->key, key)) {
       return false;
     }
     //find the node to be deleted
-    ValueNode* node_to_delete = SearchValueNode(leafNode, &value, false);
+    ValueNode* node_to_delete = SearchValueNode(leafNode, value, false);
     if(node_to_delete == NULL) {
       return false;
     }
@@ -304,15 +313,20 @@ class SkipList {
     //delete this 
     delete_value_node:
       //start to cmp swap this.
-      ValueNode* findPrev = SearchValueNode(leafNode, &value, true);
+      ValueNode* findPrev = SearchValueNode(leafNode, value, true);
+      //this value already has been deleted by another thread.
+      if (findPrev == NULL) {
+        return false;
+      }
       //cas this value node.
-      while (!__sync_bool_compare_and_swap(findPrev->next, node_to_delete, 
+      while (!__sync_bool_compare_and_swap(&(findPrev->next), ((BaseNode*)node_to_delete), 
                                       node_to_delete->next)){
               goto delete_value_node;
       }
 
+    //check whether we need to delete the whole branch.
     bool delete_branch = false;
-    if(findPrev == leafNode.head && node_to_delete->next == NULL){
+    if(findPrev == leafNode->head && node_to_delete->next == NULL){
       delete_branch = true;
     }
     // start to delete this node. search from top to bottom.
@@ -341,7 +355,6 @@ class SkipList {
             }
         }
       }
-      void* prev = start_node;
       for (int i = start_level; i >= 1; i--) {
         link_level_i:
           // find the node pointing to the current node.
@@ -395,7 +408,7 @@ class SkipList {
           }
         }
     }
-    memory_pool.push_back((void *)node_to_delete);
+    //memory_pool.push_back((void *)node_to_delete);
     return true;
   }
 
@@ -855,37 +868,6 @@ class SkipList {
   }
 
   /*****
-   * We want to find the given keyValuePair to check whether it's in the
-   * skiplist.
-   * return the exactly leafNode containing the key-value pair.
-   **/
-  LeafNode *Find(const KeyValuePair &keyPair) {
-    KeyType key = keyPair.first;
-    // search for the first node with the key == key.
-    void *curr_node = Search(key, 0);
-
-    // traverse down to find the key value pair.
-    while (curr_node != NULL) {
-      // over.
-      if (KeyCmpGreater(((LeafNode *)curr_node)->pair.first, key)) {
-        break;
-      }
-      // compare key-value pair.
-      if (KeyValueCmpEqual(((LeafNode *)curr_node)->pair, keyPair)) {
-        // if not deleted. return node.
-        if (!(((LeafNode *)curr_node)->deleted)) {
-          return (LeafNode *)curr_node;
-        }
-      }
-      // move to next one
-      // don't want to fail the case that [1, 2, deleted] [1, 2] inserted after
-      // that.
-      curr_node = ((LeafNode *)curr_node)->next;
-    }
-    return NULL;
-  }
-
-  /*****
    * We want to find a node in a certain level.
    * The method returns the previous node pointing to this node.
    **/
@@ -935,11 +917,11 @@ class SkipList {
    * return NULL.
    * if prev_node is true, then it means that it wants to find the 
    */
-  ValueNode* SearchValueNode(const LeafNode &leafNode, 
+  ValueNode* SearchValueNode(const LeafNode* leafNode, 
                                             const ValueType &value, 
                                             bool prev_node) {
-    ValueNode* prev = leafNode.head;
-    ValueNode* curr = (ValueNode*)((leafNode.head)->next);
+    ValueNode* prev = leafNode->head;
+    ValueNode* curr = (ValueNode*)(prev->next);
     while(curr != NULL) {
       //if we found the valueNode.
       if(ValueCmpEqual(curr->value, value)) {
