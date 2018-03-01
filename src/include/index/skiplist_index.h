@@ -82,11 +82,14 @@ class SkipListIndex : public Index {
   // TODO: Implement this
   size_t GetMemoryFootprint() { return 0; }
 
-  // TODO: Implement this
-  bool NeedGC() { return false; }
+  bool NeedGC() override { return container.NeedGarbageCollection(); }
 
-  // TODO: Implement this
-  void PerformGC() { return; }
+  void PerformGC() override {
+    LOG_INFO("SkipList Garbage Collection!");
+    container.PerformGarbageCollection();
+
+    return;
+  }
 
  protected:
   // equality checker and comparator
