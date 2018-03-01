@@ -118,31 +118,6 @@ class SkipList {
     }
   };
 
-  // Used for garbage collection
-  /*class InnerGCNode : public BaseNode {
-    public:
-      InnerNode* node;
-    public:
-      InnerGCNode(const InnerNode* node)
-        : node(node) {};
-  };
-
-  class LeafGCNode : public BaseNode {
-    public:
-      LeafNode* node;
-    public:
-      LeafGCNode(const LeafNode* node)
-        : node(node) {};
-  };
-
-  class ValueGCNode : public BaseNode {
-    public:
-      ValueNode* node;
-    public:
-      ValueGCNode(const ValueNode* node)
-        : node(node) {};
-  };*/
-
   ///////////////////////////////////////////////////////////////////
   // Key Comparison Member Functions
   ///////////////////////////////////////////////////////////////////
@@ -360,7 +335,7 @@ class SkipList {
   }
 
   /**
-   * Implete delete operation.
+   * Implement delete operation.
    * perform logical deletion - mark the base node as deleted.
    * The physical deletion will be performed by garbage collection.
    * The DeleteEntry function should erase only the index entry matching the
@@ -483,11 +458,6 @@ class SkipList {
     // memory_pool.push_back((void *)node_to_delete);
     return true;
   }
-
-  //  bool ConditionalInsert(const KeyType &key, const ValueType &value,
-  //                         std::function<bool(const void *)> predicate,
-  //                         bool *predicate_satisfied);
-  //  bool Delete(const KeyType &key, const ValueType &value);
 
   void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
     auto it = Begin(search_key);
@@ -1029,11 +999,11 @@ class SkipList {
 
  public:
   /*
- * class EpochManager - Maintains a linked list of deleted nodes
- *                      for threads to access until all threads
- *                      entering epochs before the deletion of
- *                      nodes have exited
- */
+   * class EpochManager - Maintains a linked list of deleted nodes
+   *                      for threads to access until all threads
+   *                      entering epochs before the deletion of
+   *                      nodes have exited
+   */
   class EpochManager {
    public:
     SkipList *skiplist_p;
