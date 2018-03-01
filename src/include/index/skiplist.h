@@ -19,7 +19,6 @@
 #include <set>
 namespace peloton {
 namespace index {
-
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
@@ -335,7 +334,7 @@ class SkipList {
     if (IsEmpty()) return false;
     //find the leafNode to delete
     LeafNode* leafNode = (LeafNode*)Search(key, 0);
-    if (leafNode == NULL || KeyCmpEqual(leafNode->key, key)) {
+    if (leafNode == NULL || !KeyCmpEqual(leafNode->key, key)) {
       return false;
     }
     //find the node to be deleted
@@ -376,7 +375,7 @@ class SkipList {
         //search all the levels until I got my node.
         start_node = Search(key, i);
         if (start_node != NULL) {
-            if(i == 0) {
+            if(i != 0) {
               if(KeyCmpEqual(((InnerNode*)start_node)->key, key)) {
                 start_level = i;
                 break;
