@@ -49,7 +49,7 @@ bool SKIPLIST_INDEX_TYPE::InsertEntry(const storage::Tuple *key,
 
   bool ret = container.Insert(index_key, value);
 
-  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]", index_key.GetInfo().c_str(),
+  LOG_TRACE("InsertEntry(key=%s, val=%s) [%s]", index_key.GetInfo().c_str(),
             IndexUtil::GetInfo(value).c_str(), (ret ? "SUCCESS" : "FAIL"));
 
   return ret;
