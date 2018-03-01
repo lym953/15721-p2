@@ -273,8 +273,8 @@ class SkipList {
       } else {
         // update head so that it points to you
         while (!__sync_bool_compare_and_swap(
-                   &(((LeafNode *)leaf_start_insert)->head), v_node->next,
-                   v_node)) {
+                   &(((LeafNode *)leaf_start_insert)->head),
+                   (ValueNode *)(v_node->next), v_node)) {
           goto search_place_to_insert;
         }
         delete lf_node;
