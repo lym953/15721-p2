@@ -224,6 +224,17 @@ class SkipList {
     lf_node->head = dummy;
     dummy->next = v_node;
 
+    size_t memory_claimed =
+        size_of_leaf_node + size_of_inner_node + size_of_value_node;
+
+  // Update memory used
+  update_memory:
+    size_t cur_memory_used = memory_used;
+    while (!__sync_bool_compare_and_swap(&memory_used, cur_memory_used,
+                                         cur_memory_used + memory_claimed)) {
+      goto update_memory;
+    }
+
   // Find the place to insert LeafNode
   search_place_to_insert:
     bool is_valid;
@@ -935,10 +946,17 @@ class SkipList {
         key_cmp_obj(p_key_cmp_obj),
         key_eq_obj(p_key_eq_obj),
         value_eq_obj(p_value_eq_obj),
+
         epoch_manager(this) {
     LOG_TRACE(
         "SkipList Constructor called. "
         "Setting up execution environment...");
+
+    size_of_inner_node = (sizeof(InnerNode));
+    size_of_leaf_node = (sizeof(LeafNode));
+    size_of_value_node = (sizeof(ValueNode));
+    LOG_TRACE("size of nodes: Inner %d, Leaf %d, Value %d", size_of_inner_node,
+              size_of_leaf_node, size_of_value_node);
 
     for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
 
@@ -996,6 +1014,14 @@ class SkipList {
   std::vector<void *> memory_pool;
 
   EpochManager epoch_manager;
+
+  size_t size_of_inner_node;
+
+  size_t size_of_leaf_node;
+
+  size_t size_of_value_node;
+
+  size_t memory_used = 0;
 
  public:
   /*
@@ -1297,24 +1323,37 @@ class SkipList {
     }
 
     void FreeNode(BaseNode *node_p) {
+      size_t freed_size = 0;
       switch (node_p->GetNodeType()) {
         case NodeType::ValueNode: {
           delete (ValueNode *)(node_p);
+          freed_size = skiplist_p->size_of_value_node;
           break;
         }
         case NodeType::LeafNode: {
           // need to remove dummy value node
           delete (((LeafNode *)node_p)->head);
           delete (LeafNode *)(node_p);
+          freed_size =
+              skiplist_p->size_of_value_node + skiplist_p->size_of_leaf_node;
           break;
         }
         case NodeType::InnerNode: {
           delete (InnerNode *)(node_p);
+          freed_size = skiplist_p->size_of_inner_node;
           break;
         }
         default:
           LOG_DEBUG("We never delete other types of nodes");
           break;
+      }
+    // Update memory used
+    update_memory:
+      size_t cur_memory_used = skiplist_p->memory_used;
+      while (!__sync_bool_compare_and_swap(&skiplist_p->memory_used,
+                                           cur_memory_used,
+                                           cur_memory_used - freed_size)) {
+        goto update_memory;
       }
       return;
     }

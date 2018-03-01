@@ -79,8 +79,7 @@ class SkipListIndex : public Index {
 
   std::string GetTypeName() const;
 
-  // TODO: Implement this
-  size_t GetMemoryFootprint() { return 0; }
+  size_t GetMemoryFootprint() { return container.memory_used; }
 
   bool NeedGC() override { return container.NeedGarbageCollection(); }
 
