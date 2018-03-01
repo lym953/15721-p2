@@ -62,10 +62,26 @@ bool SKIPLIST_INDEX_TYPE::InsertEntry(const storage::Tuple *key,
  */
 SKIPLIST_TEMPLATE_ARGUMENTS
 bool SKIPLIST_INDEX_TYPE::DeleteEntry(
-    UNUSED_ATTRIBUTE const storage::Tuple *key,
-    UNUSED_ATTRIBUTE ItemPointer *value) {
-  bool ret = false;
-  // TODO: Add your implementation here
+    const storage::Tuple *key,
+    ItemPointer *value) {
+  KeyType index_key;
+  index_key.SetFromKey(key);
+
+  //size_t delete_count = 0;
+
+  bool ret = container.Delete(index_key, value);
+
+  /*if (static_cast<StatsType>(settings::SettingsManager::GetInt(
+          settings::SettingId::stats_mode)) != StatsType::INVALID) {
+    stats::BackendStatsContext::GetInstance()->IncrementIndexDeletes(
+        delete_count, metadata);
+  }*/
+
+  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]",
+            index_key.GetInfo().c_str(),
+            IndexUtil::GetInfo(value).c_str(),
+            (ret ? "SUCCESS" : "FAIL"));
+
   return ret;
 }
 

@@ -218,7 +218,8 @@ class SkipList {
    * The DeleteEntry function should erase only the index entry matching the
    * specific <key, value> pair.
    */
-  bool Delete(const KeyValuePair &keyPair) {
+  bool Delete(const KeyType &key, const ValueType &value) {
+    KeyValuePair keyPair = std::make_pair(key, value);
     // Check if skiplist is empty
     if (IsEmpty()) return false;
     LeafNode *node_to_delete = Find(keyPair);
