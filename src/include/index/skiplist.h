@@ -58,6 +58,8 @@ class SkipList {
  public:
   using KeyValuePair = std::pair<KeyType, ValueType>;
 
+  using EpochNode = typename EpochManager::EpochNode;
+
   ///////////////////////////////////////////////////////////////////
   // Node Types
   ///////////////////////////////////////////////////////////////////
@@ -234,6 +236,8 @@ class SkipList {
   }
 
   bool Insert(const KeyType &key, const ValueType &value) {
+    EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
+
     // Create LeafNode and ValueNode and append
     LeafNode *lf_node = new LeafNode(key);
     ValueNode *dummy = new ValueNode(value);  // this value is useless
@@ -307,13 +311,14 @@ class SkipList {
           goto update_max_level;
         }
       }
+      epoch_manager.LeaveEpoch(epoch_node_p);
       return true;
     } else {
       // someone has insert this leafNode
       if (!duplicated_key) {
-        delete lf_node;
-        delete v_node;
-        delete dummy;
+        epoch_manager.AddGarbageNode(lf_node);
+        epoch_manager.AddGarbageNode(v_node);
+        epoch_manager.LeaveEpoch(epoch_node_p);
         return false;
       }
 
@@ -331,9 +336,9 @@ class SkipList {
         ptr = (ValueNode *)(ptr->next);
       }
       if (same) {
-        delete lf_node;
-        delete v_node;
-        delete dummy;
+        epoch_manager.AddGarbageNode(lf_node);
+        epoch_manager.AddGarbageNode(v_node);
+        epoch_manager.LeaveEpoch(epoch_node_p);
         return false;
       } else {
         // update head so that it points to you
@@ -342,8 +347,8 @@ class SkipList {
                    (ValueNode *)(v_node->next), v_node)) {
           goto search_place_to_insert;
         }
-        delete lf_node;
-        delete dummy;
+        epoch_manager.AddGarbageNode(lf_node);
+        epoch_manager.LeaveEpoch(epoch_node_p);
         return true;
       }
     }
@@ -488,13 +493,13 @@ class SkipList {
       ++it;
     }
   }
-  //
-  //  ///////////////////////////////////////////////////////////////////
-  //  // Garbage Collection
-  //  ///////////////////////////////////////////////////////////////////
-  //  bool NeedGarbageCollection();
-  //  void PerformGarbageCollection();
-  //
+
+  ///////////////////////////////////////////////////////////////////
+  // Garbage Collection
+  ///////////////////////////////////////////////////////////////////
+  bool NeedGarbageCollection() { return false; };
+
+  void PerformGarbageCollection(){};
 
   ///////////////////////////////////////////////////////////////////
   // Forward Iterator
@@ -1214,7 +1219,7 @@ class SkipList {
      * NOTE: This function is called by worker threads so it has
      * to consider race conditions
      */
-    void AddGarbageNode(const BaseNode *node_p) {
+    void AddGarbageNode(BaseNode *node_p) {
       // We need to keep a copy of current epoch node
       // in case that this pointer is increased during
       // the execution of this function
