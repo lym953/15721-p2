@@ -77,10 +77,9 @@ class SkipList {
    public:
     KeyType key;
     BaseNode *down;
-    InnerNode *up;
 
    public:
-    InnerNode(const KeyType &key) : key(key), down(NULL), up(NULL) {}
+    InnerNode(const KeyType &key) : key(key), down(NULL) {}
     NodeType GetNodeType() { return NodeType::InnerNode; }
   };
 
@@ -95,18 +94,10 @@ class SkipList {
 
   class LeafNode : public BaseNode {
    public:
-    KeyValuePair pair;  // will be removed in the future
     KeyType key;
     ValueNode *head;
-    InnerNode *up;  // will be removed in the future
-    bool deleted;   // will be removed in the future
 
    public:
-    LeafNode(const KeyType &key, const ValueType &value)
-        : key(key), head(NULL), up(NULL), deleted(false) {
-      pair = std::make_pair(key, value);
-    }
-
     LeafNode(const KeyType &key) : key(key), head(NULL) {}
     NodeType GetNodeType() { return NodeType::LeafNode; }
   };
