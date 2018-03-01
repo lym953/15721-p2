@@ -226,6 +226,58 @@ class SkipList {
                                            lf_node->next, lf_node)) {
         goto search_place_to_insert;
       }
+
+      // Add Tower
+      // Determine the height of the tower
+      int v = rand();
+      int levels =
+          MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >>
+                                      27];
+      InnerNode *in_nodes[levels];
+      if (levels > 0) {
+        for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
+        if (levels > 1) {
+          // Link InnerNodes
+          for (int i = 1; i < levels - 1; i++) {
+            in_nodes[i]->down = in_nodes[i - 1];
+          }
+          // bottom innernode
+          in_nodes[0]->down = lf_node;
+          // top innernode
+          in_nodes[levels - 1]->down = in_nodes[levels - 2];
+        } else {
+          in_nodes[0]->down = lf_node;
+        }
+      }
+      // Find the position to insert InnerNode for each level
+      for (int i = 1; i <= levels; i++) {
+      link_level_i:
+        void *ptr = SearchLower(key, i);
+        if (ptr == NULL) {
+          in_nodes[i - 1]->next = head_nodes[i].next;
+          while (!__sync_bool_compare_and_swap(&head_nodes[i].next,
+                                               in_nodes[i - 1]->next,
+                                               in_nodes[i - 1])) {
+            goto link_level_i;
+          }
+        } else {
+          in_nodes[i - 1]->next = ((InnerNode *)(ptr))->next;
+          while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),
+                                               in_nodes[i - 1]->next,
+                                               in_nodes[i - 1])) {
+            goto link_level_i;
+          }
+        }
+      }
+    // Add additional levels if the tower exceeds the maximum height
+    update_max_level:
+      int cur_max_level = max_level;
+      if (levels > cur_max_level) {
+        while (
+            !__sync_bool_compare_and_swap(&max_level, cur_max_level, levels)) {
+          goto update_max_level;
+        }
+      }
       return true;
     } else {
       // someone has insert this leafNode
@@ -248,7 +300,6 @@ class SkipList {
         }
         ptr = (ValueNode *)(ptr->next);
       }
-      // std::cout << same << " Yes, it has the same value" << std::endl;
       if (same) {
         delete lf_node;
         delete v_node;
@@ -256,39 +307,16 @@ class SkipList {
       } else {
         // update head so that it points to you
         while (!__sync_bool_compare_and_swap(
-                   &(((LeafNode *)leaf_start_insert)->head), v_node->next,
-                   v_node)) {
+                   &(((LeafNode *)leaf_start_insert)->head),
+                   (ValueNode *)(v_node->next), v_node)) {
           goto search_place_to_insert;
         }
         delete lf_node;
         return true;
       }
     }
-
-    // // Determine the height of the tower
-    // int v = rand();
-    // int levels =
-    //     MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >>
-    //     27];
-    // InnerNode *in_nodes[levels];
-    // if (levels > 0) {
-    //   for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
-    //   if (levels > 1) {
-    //     // Link InnerNodes
-    //     for (int i = 1; i < levels - 1; i++) {
-    //       in_nodes[i]->down = in_nodes[i - 1];
-    //     }
-    //     // bottom innernode
-    //     in_nodes[0]->down = lf_node;
-    //     // top innernode
-    //     in_nodes[levels - 1]->down = in_nodes[levels - 2];
-    //   } else {
-    //     in_nodes[0]->down = lf_node;
-    //   }
-    // }
-    // return true;
+    return true;
   }
-
   /**
    * Implete delete operation.
    * perform logical deletion - mark the base node as deleted.
