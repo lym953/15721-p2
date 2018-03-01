@@ -83,7 +83,7 @@ class SkipList {
     LeafNode(const KeyType &key) : key(key), head(NULL) {}
   };
 
-  //Used for garbage collection
+  // Used for garbage collection
   /*class InnerGCNode : public BaseNode {
     public:
       InnerNode* node;
@@ -157,11 +157,10 @@ class SkipList {
   /**
    * ValueCmpEqual() - Compare two values for == relation
    */
-   inline bool ValueCmpEqual(const ValueType &val1, 
-                              const ValueType &val2) const{
-      return value_eq_obj(val1, val2);
-   }
-
+  inline bool ValueCmpEqual(const ValueType &val1,
+                            const ValueType &val2) const {
+    return value_eq_obj(val1, val2);
+  }
 
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
@@ -332,116 +331,118 @@ class SkipList {
   bool Delete(const KeyType &key, const ValueType &value) {
     // Check if skiplist is empty
     if (IsEmpty()) return false;
-    //find the leafNode to delete
-    LeafNode* leafNode = (LeafNode*)Search(key, 0);
+    // find the leafNode to delete
+    LeafNode *leafNode = (LeafNode *)Search(key, 0);
     if (leafNode == NULL || !KeyCmpEqual(leafNode->key, key)) {
       return false;
     }
-    //find the node to be deleted
-    ValueNode* node_to_delete = SearchValueNode(leafNode, value, false);
-    if(node_to_delete == NULL) {
+    // find the node to be deleted
+    ValueNode *node_to_delete = SearchValueNode(leafNode, value, false);
+    if (node_to_delete == NULL) {
       return false;
     }
 
-    //delete this 
-    delete_value_node:
-      //start to cmp swap this.
-      ValueNode* findPrev = SearchValueNode(leafNode, value, true);
-      //this value already has been deleted by another thread.
-      if (findPrev == NULL) {
-        return false;
-      }
-      //cas this value node.
-      while (!__sync_bool_compare_and_swap(&(findPrev->next), ((BaseNode*)node_to_delete), 
-                                      node_to_delete->next)){
-              goto delete_value_node;
-      }
+  // delete this
+  delete_value_node:
+    // start to cmp swap this.
+    ValueNode *findPrev = SearchValueNode(leafNode, value, true);
+    // this value already has been deleted by another thread.
+    if (findPrev == NULL) {
+      return false;
+    }
+    // cas this value node.
+    while (!__sync_bool_compare_and_swap(&(findPrev->next),
+                                         ((BaseNode *)node_to_delete),
+                                         node_to_delete->next)) {
+      goto delete_value_node;
+    }
 
-    //check whether we need to delete the whole branch.
+    // check whether we need to delete the whole branch.
     bool delete_branch = false;
-    if(findPrev == leafNode->head && node_to_delete->next == NULL){
+    if (findPrev == leafNode->head && node_to_delete->next == NULL) {
       delete_branch = true;
     }
     // start to delete this node. search from top to bottom.
     // prev may be a normal inner node, or a head node.
     // but no matter of what, it should give you prev.
     if (delete_branch) {
-      void* start_node = NULL;
-      //When I want to delete the top, I have to find one.
-      //Search returns the first duplicate one.
-      //if the returned doesn't have the key, it means it cannot be in the list.
+      void *start_node = NULL;
+      // When I want to delete the top, I have to find one.
+      // Search returns the first duplicate one.
+      // if the returned doesn't have the key, it means it cannot be in the
+      // list.
       int start_level = -1;
-      for(int i = max_level; i >= 0; i--) {
-        //search all the levels until I got my node.
+      for (int i = max_level; i >= 0; i--) {
+        // search all the levels until I got my node.
         start_node = Search(key, i);
         if (start_node != NULL) {
-            if(i != 0) {
-              if(KeyCmpEqual(((InnerNode*)start_node)->key, key)) {
-                start_level = i;
-                break;
-              }
-            } else {
-              if (KeyCmpEqual(((LeafNode*)start_node)->key, key)) {
-                start_level = i;
-                break;
-              }
+          if (i != 0) {
+            if (KeyCmpEqual(((InnerNode *)start_node)->key, key)) {
+              start_level = i;
+              break;
             }
+          } else {
+            if (KeyCmpEqual(((LeafNode *)start_node)->key, key)) {
+              start_level = i;
+              break;
+            }
+          }
         }
       }
       for (int i = start_level; i >= 1; i--) {
-        link_level_i:
-          // find the node pointing to the current node.
-          void *ptr = SearchNode(start_node, i);
-          // possibily header node.
-          if (ptr == NULL) {
-            if (head_nodes[i].next == start_node &&
-                ((BaseNode *)start_node)->next == NULL) {
-              int cur_max_level = max_level;
-              if (cur_max_level == i) {
-                // do we care if this set fails?
-                // TODO: don't care if fails right now.
-                __sync_bool_compare_and_swap(&max_level, cur_max_level,
-                                             cur_max_level - 1);
-              }
-            }
-            // set ptr's next to my current's next.
-            while (!__sync_bool_compare_and_swap(&(head_nodes[i].next),
-                                                 (BaseNode *)start_node,
-                                                 ((BaseNode *)start_node)->next)) {
-              goto link_level_i;
-            }
-          } else {
-            // set ptr's next to my current's next.
-            while (!__sync_bool_compare_and_swap(&(((InnerNode *)(ptr))->next),
-                                                 (BaseNode *)start_node,
-                                                 ((BaseNode *)start_node)->next)) {
-              goto link_level_i;
+      link_level_i:
+        // find the node pointing to the current node.
+        void *ptr = SearchNode(start_node, i);
+        // possibily header node.
+        if (ptr == NULL) {
+          if (head_nodes[i].next == start_node &&
+              ((BaseNode *)start_node)->next == NULL) {
+            int cur_max_level = max_level;
+            if (cur_max_level == i) {
+              // do we care if this set fails?
+              // TODO: don't care if fails right now.
+              __sync_bool_compare_and_swap(&max_level, cur_max_level,
+                                           cur_max_level - 1);
             }
           }
+          // set ptr's next to my current's next.
+          while (!__sync_bool_compare_and_swap(
+                     &(head_nodes[i].next), (BaseNode *)start_node,
+                     ((BaseNode *)start_node)->next)) {
+            goto link_level_i;
+          }
+        } else {
+          // set ptr's next to my current's next.
+          while (!__sync_bool_compare_and_swap(
+                     &(((InnerNode *)(ptr))->next), (BaseNode *)start_node,
+                     ((BaseNode *)start_node)->next)) {
+            goto link_level_i;
+          }
+        }
         // move to next level.
         start_node = (void *)((InnerNode *)start_node)->down;
       }
 
-      // cas the bottom one.
-      link_level_0:
-        void *ptr = SearchNode(start_node, 0);
-        if (ptr != NULL) {
-          // we don't reduce max level here because it's already 0.
-          while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
-                                               (BaseNode *)start_node,
-                                               ((BaseNode *)start_node)->next)) {
-            goto link_level_0;
-          }
-        } else {
-          // we don't reduce max level here because it's already 0.
-          while (!__sync_bool_compare_and_swap(&head_nodes[0].next,
-                                               (BaseNode *)start_node,
-                                               ((BaseNode *)start_node)->next)) {
-            goto link_level_0;
-          }
+    // cas the bottom one.
+    link_level_0:
+      void *ptr = SearchNode(start_node, 0);
+      if (ptr != NULL) {
+        // we don't reduce max level here because it's already 0.
+        while (!__sync_bool_compare_and_swap(&(((LeafNode *)ptr)->next),
+                                             (BaseNode *)start_node,
+                                             ((BaseNode *)start_node)->next)) {
+          goto link_level_0;
         }
+      } else {
+        // we don't reduce max level here because it's already 0.
+        while (!__sync_bool_compare_and_swap(&head_nodes[0].next,
+                                             (BaseNode *)start_node,
+                                             ((BaseNode *)start_node)->next)) {
+          goto link_level_0;
+        }
+      }
     }
-    //memory_pool.push_back((void *)node_to_delete);
+    // memory_pool.push_back((void *)node_to_delete);
     return true;
   }
 
@@ -536,21 +537,23 @@ class SkipList {
      * LowerBound() - Find entry whose key >= start_key
      */
     void LowerBound(const KeyType &start_key_p) {
-      lf_node = (LeafNode *)list_p->Search(start_key_p, 0);
+      lf_node = (LeafNode *)(list_p->Search(start_key_p, 0));
 
       if (lf_node == nullptr) {
         // There is no node whose key <= start_key
-        lf_node = (LeafNode *)list_p->head_nodes[0].next;
+        lf_node = (LeafNode *)(list_p->head_nodes[0].next);
       } else if (list_p->KeyCmpLess(lf_node->key, start_key_p)) {
         // There is no node whose key == start_key. Now lf_node is the last
         // one whose key < start_key.
-        lf_node = (LeafNode *)lf_node->next;
+        lf_node = (LeafNode *)(lf_node->next);
       }
-      val_node = (ValueNode *)lf_node->head->next;
-      MoveAheadToUndeletedNode();
-//
-//      PL_ASSERT(lf_node == nullptr ||
-//                KeyCmpLessEqual(start_key_p, lf_node->key));
+      if (lf_node != NULL) {
+        val_node = (ValueNode *)(lf_node->head->next);
+        MoveAheadToUndeletedNode();
+      }
+      //
+      //      PL_ASSERT(lf_node == nullptr ||
+      //                KeyCmpLessEqual(start_key_p, lf_node->key));
     }
 
     /*
@@ -896,28 +899,26 @@ class SkipList {
   }
 
   /***
-   * This function wants to find the ValueNode to Delete. 
+   * This function wants to find the ValueNode to Delete.
    * return NULL.
-   * if prev_node is true, then it means that it wants to find the 
+   * if prev_node is true, then it means that it wants to find the
    */
-  ValueNode* SearchValueNode(const LeafNode* leafNode, 
-                                            const ValueType &value, 
-                                            bool prev_node) {
-    ValueNode* prev = leafNode->head;
-    ValueNode* curr = (ValueNode*)(prev->next);
-    while(curr != NULL) {
-      //if we found the valueNode.
-      if(ValueCmpEqual(curr->value, value)) {
-          if(prev_node) {
-            return prev;
-          }
-          else {
-            return curr;
-          }
+  ValueNode *SearchValueNode(const LeafNode *leafNode, const ValueType &value,
+                             bool prev_node) {
+    ValueNode *prev = leafNode->head;
+    ValueNode *curr = (ValueNode *)(prev->next);
+    while (curr != NULL) {
+      // if we found the valueNode.
+      if (ValueCmpEqual(curr->value, value)) {
+        if (prev_node) {
+          return prev;
+        } else {
+          return curr;
+        }
       }
-      //move to next one.
+      // move to next one.
       prev = curr;
-      curr = (ValueNode*)curr->next;
+      curr = (ValueNode *)curr->next;
     }
     return NULL;
   }

@@ -61,13 +61,12 @@ bool SKIPLIST_INDEX_TYPE::InsertEntry(const storage::Tuple *key,
  * If the key-value pair does not exists yet in the map return false
  */
 SKIPLIST_TEMPLATE_ARGUMENTS
-bool SKIPLIST_INDEX_TYPE::DeleteEntry(
-    const storage::Tuple *key,
-    ItemPointer *value) {
+bool SKIPLIST_INDEX_TYPE::DeleteEntry(const storage::Tuple *key,
+                                      ItemPointer *value) {
   KeyType index_key;
   index_key.SetFromKey(key);
 
-  //size_t delete_count = 0;
+  // size_t delete_count = 0;
 
   bool ret = container.Delete(index_key, value);
 
@@ -77,10 +76,8 @@ bool SKIPLIST_INDEX_TYPE::DeleteEntry(
         delete_count, metadata);
   }*/
 
-  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]",
-            index_key.GetInfo().c_str(),
-            IndexUtil::GetInfo(value).c_str(),
-            (ret ? "SUCCESS" : "FAIL"));
+  LOG_TRACE("DeleteEntry(key=%s, val=%s) [%s]", index_key.GetInfo().c_str(),
+            IndexUtil::GetInfo(value).c_str(), (ret ? "SUCCESS" : "FAIL"));
 
   return ret;
 }
