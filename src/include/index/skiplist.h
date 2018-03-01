@@ -80,6 +80,8 @@ class SkipList {
         : key(key), head(NULL), up(NULL), deleted(false) {
       pair = std::make_pair(key, value);
     }
+
+    LeafNode(const KeyType &key) : key(key), head(NULL) {}
   };
 
   ///////////////////////////////////////////////////////////////////
