@@ -151,10 +151,10 @@ void TestingIndexUtil::UniqueKeyDeleteTest(const IndexType index_type) {
 
   key0->SetValue(0, type::ValueFactory::GetIntegerValue(100), pool);
   key0->SetValue(1, type::ValueFactory::GetVarcharValue("a"), pool);
-  key2->SetValue(0, type::ValueFactory::GetIntegerValue(100), pool);
-  key2->SetValue(1, type::ValueFactory::GetVarcharValue("b"), pool);
   key1->SetValue(0, type::ValueFactory::GetIntegerValue(100), pool);
-  key1->SetValue(1, type::ValueFactory::GetVarcharValue("c"), pool);
+  key1->SetValue(1, type::ValueFactory::GetVarcharValue("b"), pool);
+  key2->SetValue(0, type::ValueFactory::GetIntegerValue(100), pool);
+  key2->SetValue(1, type::ValueFactory::GetVarcharValue("c"), pool);
 
   LOG_DEBUG("INDEX CONTENTS:\n%s",
            index::IndexUtil::Debug(index.get()).c_str());
