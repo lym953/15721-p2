@@ -75,14 +75,15 @@ class SkipList {
   class BaseNode {
    public:
     BaseNode *next = NULL;
+    NodeType type = NodeType::BaseNode;
 
    public:
-    NodeType GetNodeType() { return NodeType::BaseNode; }
+    NodeType GetNodeType() { return type; }
   };
 
   class HeadNode : public BaseNode {
    public:
-    NodeType GetNodeType() { return NodeType::HeadNode; }
+    HeadNode() { BaseNode::type = NodeType::HeadNode; }
   };
 
   class InnerNode : public BaseNode {
@@ -91,8 +92,9 @@ class SkipList {
     BaseNode *down;
 
    public:
-    InnerNode(const KeyType &key) : key(key), down(NULL) {}
-    NodeType GetNodeType() { return NodeType::InnerNode; }
+    InnerNode(const KeyType &key) : key(key), down(NULL) {
+      BaseNode::type = NodeType::InnerNode;
+    }
   };
 
   class ValueNode : public BaseNode {
@@ -100,8 +102,9 @@ class SkipList {
     ValueType value;
 
    public:
-    ValueNode(const ValueType &value) : value(value){};
-    NodeType GetNodeType() { return NodeType::ValueNode; }
+    ValueNode(const ValueType &value) : value(value) {
+      BaseNode::type = NodeType::ValueNode;
+    }
   };
 
   class LeafNode : public BaseNode {
@@ -110,8 +113,9 @@ class SkipList {
     ValueNode *head;
 
    public:
-    LeafNode(const KeyType &key) : key(key), head(NULL) {}
-    NodeType GetNodeType() { return NodeType::LeafNode; }
+    LeafNode(const KeyType &key) : key(key), head(NULL) {
+      BaseNode::type = NodeType::LeafNode;
+    }
   };
 
   // Used for garbage collection
@@ -497,9 +501,9 @@ class SkipList {
   ///////////////////////////////////////////////////////////////////
   // Garbage Collection
   ///////////////////////////////////////////////////////////////////
-  bool NeedGarbageCollection() { return false; };
+  bool NeedGarbageCollection() { return true; };
 
-  void PerformGarbageCollection(){};
+  void PerformGarbageCollection() { epoch_manager.PerformGarbageCollection(); };
 
   ///////////////////////////////////////////////////////////////////
   // Forward Iterator
