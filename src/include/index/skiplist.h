@@ -710,7 +710,8 @@ class SkipList {
       }
       while (ptr) {
         if (!KeyCmpLess(prev_key, ptr->key)) {
-          std::cout << "Failed" << std::endl;
+          std::cout << "Failed (" << prev_key << "," << ptr->key << ")"
+                    << std::endl;
           return false;
         }
         prev_key = ptr->key;
@@ -725,7 +726,8 @@ class SkipList {
     }
     while (ptr) {
       if (!KeyCmpLess(prev_key, ptr->key)) {
-        std::cout << "Failed" << std::endl;
+        std::cout << "Failed (" << prev_key << "," << ptr->key << ")"
+                  << std::endl;
         return false;
       }
       prev_key = ptr->key;
@@ -762,6 +764,18 @@ class SkipList {
 
     // TODO: Check if there's duplicated (key, value) pair when duplicates are
     // allowed
+
+    // Check if each leafnode is not deleted
+    std::cout << "Checking if there is no deleted leafnode ... " << std::flush;
+    LeafNode *ptr_6 = (LeafNode *)(head_nodes[0].next);
+    while (ptr_6 != NULL) {
+      if (ptr_6->head->next == NULL) {
+        std::cout << "Failed  (LeafNode that are deleted)" << std::endl;
+        return false;
+      }
+      ptr_6 = (LeafNode *)(ptr_6->next);
+    }
+    std::cout << "Correct" << std::endl;
     return true;
   }
 
