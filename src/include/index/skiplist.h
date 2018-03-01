@@ -564,8 +564,14 @@ class SkipList {
     std::cout << "Level " << 0 << " :";
     LeafNode *cur = static_cast<LeafNode *>(head_nodes[0].next);
     while (cur != NULL) {
-      std::cout << "(" << cur->pair.first << ", " << cur->pair.second
-                << ") --->";
+      std::cout << "(" << cur->key << ", [";
+      // print value chain
+      ValueNode *ptr = cur->head;
+      while (ptr != NULL) {
+        std::cout << ptr->value << ", ";
+        ptr = (ValueNode *)(ptr->next);
+      }
+      std::cout << "]) ---> ";
       cur = static_cast<LeafNode *>(cur->next);
     }
     std::cout << std::endl;
