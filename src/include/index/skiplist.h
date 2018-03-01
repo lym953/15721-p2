@@ -757,7 +757,7 @@ class SkipList {
     if (ptr != NULL) {
       if (level == 0) {
         LeafNode *next = (LeafNode *)(((LeafNode *)ptr)->next);
-        if (next != NULL && key_eq_obj(next->pair.first, key))
+        if (next != NULL && key_eq_obj(next->key, key))
           return next;
         else
           return ptr;
@@ -771,7 +771,7 @@ class SkipList {
     } else {
       if (level == 0) {
         LeafNode *next = (LeafNode *)(head_nodes[level].next);
-        if (next != NULL && key_eq_obj(next->pair.first, key))
+        if (next != NULL && key_eq_obj(next->key, key))
           return next;
         else
           return ptr;
@@ -818,7 +818,7 @@ class SkipList {
     while (1) {
       if (cur_level == 0) {
         LeafNode *leaf_cur = (LeafNode *)cur;
-        while (leaf_cur != NULL && KeyCmpLess(leaf_cur->pair.first, key)) {
+        while (leaf_cur != NULL && KeyCmpLess(leaf_cur->key, key)) {
           prev = leaf_cur;
           leaf_cur = (LeafNode *)(leaf_cur->next);
         }
