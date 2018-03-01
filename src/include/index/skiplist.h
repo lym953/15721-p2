@@ -45,6 +45,16 @@ namespace index {
 template <typename KeyType, typename ValueType, typename KeyComparator,
           typename KeyEqualityChecker, typename ValueEqualityChecker>
 class SkipList {
+  // Public Classes Declarations
+ public:
+  class EpochManager;
+  class BaseNode;
+  class HeadNode;
+  class InnerNode;
+  class LeafNode;
+  class ValueNode;
+  class ForwardIterator;
+
  public:
   using KeyValuePair = std::pair<KeyType, ValueType>;
 
@@ -489,12 +499,6 @@ class SkipList {
   ///////////////////////////////////////////////////////////////////
   // Forward Iterator
   ///////////////////////////////////////////////////////////////////
-
-  /*
-   * class ForwardIterator - Iterator that supports forward iteration of list
-   *                         elements
-   */
-  class ForwardIterator;
 
   /*
    * Begin() - Return an iterator pointing to the first element in the list, or
@@ -951,8 +955,16 @@ class SkipList {
       : duplicated_key(p_duplicated_key),
         key_cmp_obj(p_key_cmp_obj),
         key_eq_obj(p_key_eq_obj),
-        value_eq_obj(p_value_eq_obj) {
+        value_eq_obj(p_value_eq_obj),
+        epoch_manager(this) {
+    LOG_TRACE(
+        "SkipList Constructor called. "
+        "Setting up execution environment...");
+
     for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
+
+    LOG_TRACE("Starting epoch manager thread...");
+    epoch_manager.StartThread();
   };
 
   // Destructor
@@ -1004,6 +1016,8 @@ class SkipList {
   // tmp memory pool to recyle nodes.
   std::vector<void *> memory_pool;
 
+  EpochManager epoch_manager;
+
  public:
   /*
  * class EpochManager - Maintains a linked list of deleted nodes
@@ -1022,7 +1036,7 @@ class SkipList {
      * struct GarbageNode - A linked list of garbages
      */
     struct GarbageNode {
-      const BaseNode *node_p;
+      BaseNode *node_p;
 
       // This does not have to be atomic, since we only
       // insert at the head of garbage list
@@ -1303,7 +1317,7 @@ class SkipList {
       return;
     }
 
-    void FreeNode(const BaseNode *node_p) {
+    void FreeNode(BaseNode *node_p) {
       switch (node_p->GetNodeType()) {
         case NodeType::ValueNode: {
           delete (ValueNode *)(node_p);
