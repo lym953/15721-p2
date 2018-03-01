@@ -29,7 +29,7 @@ SKIPLIST_INDEX_TYPE::SkipListIndex(IndexMetadata *metadata)
       // Key equality checker
       equals{},
 
-      container{metadata->HasUniqueKeys(), comparator, equals} {
+      container{!metadata->HasUniqueKeys(), comparator, equals} {
   return;
 }
 
