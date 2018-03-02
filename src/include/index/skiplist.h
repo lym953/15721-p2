@@ -394,7 +394,7 @@ class SkipList {
       return false;
     }
     // find the node to be deleted
-    ValueNode *node_to_delete = SearchValueNode(leafNode, value, false);
+    ValueNode *node_to_delete = SearchValueNode(leafNode, value);
     if (node_to_delete == NULL) {
       epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
@@ -404,7 +404,7 @@ class SkipList {
   // delete this
   delete_value_node:
     // start to cmp swap this.
-    findPrev = SearchValueNode(leafNode, value, true);
+    findPrev = SearchPrevValueNode(leafNode, node_to_delete);
     // this value already has been deleted by another thread.
     if (findPrev == NULL) {
       epoch_manager.LeaveEpoch(epoch_node_p);
@@ -947,18 +947,28 @@ class SkipList {
    * if prev_node is true, then it means that it wants to find the
    * previous node pointing to the value node.
    */
-  ValueNode *SearchValueNode(const LeafNode *leafNode, const ValueType &value,
-                             bool prev_node) {
+  ValueNode *SearchValueNode(const LeafNode *leafNode, const ValueType &value) {
     ValueNode *prev = leafNode->head;
     ValueNode *curr = (ValueNode *)(prev->next);
     while (curr != NULL) {
       // if we found the valueNode.
       if (ValueCmpEqual(curr->value, value)) {
-        if (prev_node) {
-          return prev;
-        } else {
-          return curr;
-        }
+        return curr;
+      }
+      // move to next one.
+      prev = curr;
+      curr = (ValueNode *)curr->next;
+    }
+    return NULL;
+  }
+
+  ValueNode *SearchPrevValueNode(const LeafNode *leafNode, ValueNode *node) {
+    ValueNode *prev = leafNode->head;
+    ValueNode *curr = (ValueNode *)(prev->next);
+    while (curr != NULL) {
+      // if we found the valueNode.
+      if (curr == node) {
+        return prev;
       }
       // move to next one.
       prev = curr;
