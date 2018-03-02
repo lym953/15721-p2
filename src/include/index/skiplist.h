@@ -359,9 +359,37 @@ class SkipList {
       epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
-    // find the leafNode to delete
-    LeafNode *leafNode = (LeafNode *)Search(key, 0);
-    if (leafNode == NULL || !KeyCmpEqual(leafNode->key, key)) {
+
+    // find the first level containing this key.
+    void *start_node = NULL;
+    int start_level = -1;
+    for (int i = max_level; i >= 0; i--) {
+      // search all the levels until I got my node.
+      start_node = Search(key, i);
+      if (start_node != NULL) {
+        if (i != 0) {
+          if (KeyCmpEqual(((InnerNode *)start_node)->key, key)) {
+            start_level = i;
+            break;
+          }
+        } else {
+          if (KeyCmpEqual(((LeafNode *)start_node)->key, key)) {
+            start_level = i;
+            break;
+          }
+        }
+      }
+    }
+    // If I can't find a tower for this key. already deleted.
+    if (start_level == -1) {
+      epoch_manager.LeaveEpoch(epoch_node_p);
+      return false;
+    }
+
+    // find the leafNode to delete - this must exist because of the down
+    // pointer.
+    LeafNode *leafNode = (LeafNode *)FindLeafNode(start_node, start_level);
+    if (leafNode == NULL) {
       epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
@@ -372,10 +400,11 @@ class SkipList {
       return false;
     }
 
+    ValueNode *findPrev = NULL;
   // delete this
   delete_value_node:
     // start to cmp swap this.
-    ValueNode *findPrev = SearchValueNode(leafNode, value, true);
+    findPrev = SearchValueNode(leafNode, value, true);
     // this value already has been deleted by another thread.
     if (findPrev == NULL) {
       epoch_manager.LeaveEpoch(epoch_node_p);
@@ -399,52 +428,24 @@ class SkipList {
     // prev may be a normal inner node, or a head node.
     // but no matter of what, it should give you prev.
     if (delete_branch) {
-      void *start_node = NULL;
-      // When I want to delete the top, I have to find one.
-      // Search returns the first duplicate one.
-      // if the returned doesn't have the key, it means it cannot be in the
-      // list.
-      int start_level = -1;
-      for (int i = max_level; i >= 0; i--) {
-        // search all the levels until I got my node.
-        start_node = Search(key, i);
-        if (start_node != NULL) {
-          if (i != 0) {
-            if (KeyCmpEqual(((InnerNode *)start_node)->key, key)) {
-              start_level = i;
-              break;
-            }
-          } else {
-            if (KeyCmpEqual(((LeafNode *)start_node)->key, key)) {
-              start_level = i;
-              break;
-            }
-          }
-        }
-      }
       for (int i = start_level; i >= 1; i--) {
       link_level_i:
         // find the node pointing to the current node.
+        // no thread can delete the same branch at the same time.
         void *ptr = SearchNode(start_node, i);
         // possibily header node.
         if (ptr == NULL) {
-          if (head_nodes[i].next == start_node &&
-              ((BaseNode *)start_node)->next == NULL) {
+          epoch_manager.LeaveEpoch(epoch_node_p);
+          return false;
+        } else {
+          if (ptr == &head_nodes[i] && ((BaseNode *)start_node)->next == NULL) {
             int cur_max_level = max_level;
             if (cur_max_level == i) {
               // do we care if this set fails?
-              // TODO: don't care if fails right now.
               __sync_bool_compare_and_swap(&max_level, cur_max_level,
                                            cur_max_level - 1);
             }
           }
-          // set ptr's next to my current's next.
-          while (!__sync_bool_compare_and_swap(
-                     &(head_nodes[i].next), (BaseNode *)start_node,
-                     ((BaseNode *)start_node)->next)) {
-            goto link_level_i;
-          }
-        } else {
           // set ptr's next to my current's next.
           while (!__sync_bool_compare_and_swap(
                      &(((InnerNode *)(ptr))->next), (BaseNode *)start_node,
@@ -471,19 +472,14 @@ class SkipList {
           goto link_level_0;
         }
       } else {
-        // we don't reduce max level here because it's already 0.
-        while (!__sync_bool_compare_and_swap(&head_nodes[0].next,
-                                             (BaseNode *)start_node,
-                                             ((BaseNode *)start_node)->next)) {
-          goto link_level_0;
-        }
+        epoch_manager.LeaveEpoch(epoch_node_p);
+        return false;
       }
 
       epoch_manager.AddGarbageNode((BaseNode *)start_node);
     }
 
     epoch_manager.LeaveEpoch(epoch_node_p);
-    // memory_pool.push_back((void *)node_to_delete);
     return true;
   }
 
@@ -895,11 +891,12 @@ class SkipList {
     } else {
       key = ((InnerNode *)node)->key;
     }
+    // find the node with key < key at level.
     prev = SearchLower(key, level);
     // we still want to search from start to avoid false positive.
     void *curr_node;
-    // if we can't find such a node.
     if (prev == NULL) {
+      prev = &head_nodes[level];
       curr_node = head_nodes[level].next;
     } else {
       curr_node = ((BaseNode *)prev)->next;
@@ -907,6 +904,8 @@ class SkipList {
 
     // start to find the node.
     while (curr_node != NULL) {
+      // if the current node's key already greater than the key we want.
+      // can't find the node.
       if (level == 0) {
         if (KeyCmpGreater(((LeafNode *)curr_node)->key, key)) {
           prev = NULL;
@@ -919,19 +918,20 @@ class SkipList {
         }
       }
       if (curr_node == node) {
-        break;
+        return prev;
       }
       // move to next one.
       prev = curr_node;
       curr_node = ((BaseNode *)curr_node)->next;
     }
-    return prev;
+    return NULL;
   }
 
   /***
    * This function wants to find the ValueNode to Delete.
    * return NULL.
    * if prev_node is true, then it means that it wants to find the
+   * previous node pointing to the value node.
    */
   ValueNode *SearchValueNode(const LeafNode *leafNode, const ValueType &value,
                              bool prev_node) {
@@ -951,6 +951,17 @@ class SkipList {
       curr = (ValueNode *)curr->next;
     }
     return NULL;
+  }
+
+  /***
+   * Find the leaf node given the start node
+   */
+  void *FindLeafNode(void *start_node, int level) {
+    void *leaf_node = start_node;
+    for (int i = level; i >= 1; i--) {
+      leaf_node = ((InnerNode *)leaf_node)->down;
+    }
+    return leaf_node;
   }
 
  public:
