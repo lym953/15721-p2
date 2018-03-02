@@ -240,6 +240,14 @@ class SkipList {
     bool is_valid;
     BaseNode *leaf_start_insert = SearchPlaceToInsertLeaf(key, is_valid);
     if (is_valid) {
+      // If leaf_start_insert is a leafnode,
+      // it's possible that other threads cut leaf_start_insert off the leaf
+      // chain. We dont risk.
+      if (leaf_start_insert->GetNodeType() == NodeType::LeafNode) {
+        BaseNode *v_node = ((LeafNode *)leaf_start_insert)->head->next;
+        if (v_node == NULL) goto search_place_to_insert;
+      }
+
       lf_node->next = leaf_start_insert->next;
       if (lf_node->next &&
           !KeyCmpGreater(((LeafNode *)(lf_node->next))->key, key)) {
@@ -248,6 +256,14 @@ class SkipList {
       while (!__sync_bool_compare_and_swap(&leaf_start_insert->next,
                                            lf_node->next, lf_node)) {
         goto search_place_to_insert;
+      }
+
+      // If leaf_start_insert is a leafnode,
+      // it's possible that other threads cut leaf_start_insert off the leaf
+      // chain. We dont risk.
+      if (leaf_start_insert->GetNodeType() == NodeType::LeafNode) {
+        BaseNode *v_node = ((LeafNode *)leaf_start_insert)->head->next;
+        if (v_node == NULL) goto search_place_to_insert;
       }
 
       // Add Tower
