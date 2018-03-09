@@ -11,18 +11,15 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
-#include <vector>
-#include <utility>
+#include <atomic>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <set>
-#include <atomic>
 #include <thread>
+#include <utility>
+#include <vector>
 
-#include "common/logger.h"
-#include "common/macros.h"
-#include "util/string_util.h"
 namespace peloton {
 namespace index {
 /*
@@ -207,42 +204,35 @@ class SkipList {
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
 
-  BaseNode *SearchPlaceToInsertLeaf(const KeyType &key, bool &valid) {
-    LeafNode *ptr = (LeafNode *)SearchLower(key, 0);
-    if (ptr == NULL) {
-      if (head_nodes[0].Next() == NULL) {
-        valid = true;
-        return &head_nodes[0];
-      }
-      BaseNode *prev = &head_nodes[0];
-      ptr = (LeafNode *)(head_nodes[0].Next());
-      while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
-        bool same_key = key_eq_obj(ptr->key, key);
-        bool deleted = ptr->head->Next() == NULL;
-        if (same_key && !deleted) {
-          valid = false;
-          return ptr;
-        }
-        prev = ptr;
-        ptr = (LeafNode *)(ptr->Next());
-      }
-      valid = true;
-      return prev;
-    } else {
-      LeafNode *prev = ptr;
-      while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
-        bool same_key = key_eq_obj(ptr->key, key);
-        bool deleted = ptr->head->Next() == NULL;
-        if (same_key && !deleted) {
-          valid = false;
-          return ptr;
-        }
-        prev = ptr;
-        ptr = (LeafNode *)(ptr->Next());
-      }
-      valid = true;
-      return prev;
+  void SearchPlaceToInsertLeaf(const KeyType &key, bool &valid, BaseNode *&prev,
+                               LeafNode *&ptr) {
+    prev = (LeafNode *)SearchLower(key, 0);
+    if (prev == NULL) {
+      prev = (BaseNode *)&head_nodes[0];
     }
+    ptr = (LeafNode *)prev->Next();
+    
+    while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
+      prev = ptr;
+      ptr = (LeafNode *)ptr->Next();
+      if (prev->type == NodeType::LeafNode) {
+        bool same_key = key_eq_obj(((LeafNode *)prev)->key, key);
+        bool deleted = ((LeafNode *)prev)->head->Next() == NULL;
+        if (same_key && !deleted) {
+          // Found an undeleted leaf node with the same key
+          valid = false;
+          return;
+        }
+      }
+    }
+
+    // Fail to find an undeleted leaf node with the same key.
+    // Possible cases for prev at this point:
+    //   1. head_node[0] (when there is no prev < key)
+    //   2. prev < key
+    //   3. prev is the last deleted node having @key
+    PL_ASSERT(ptr == NULL || KeyCmpGreater(ptr->key, key));
+    valid = true;
   }
 
   /**
@@ -250,10 +240,13 @@ class SkipList {
    * Insert then deleting.
    */
   bool Insert(const KeyType &key, const ValueType &value) {
+    // // LOG_DEBUG("Insert (%d, %d)", key, value);
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-
     // Create LeafNode and ValueNode and append
     LeafNode *lf_node = new LeafNode(key);
+
+    // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p\n", __LINE__, key, value, lf_node);
+
     ValueNode *dummy = new ValueNode(value);  // this value is useless
     ValueNode *v_node = new ValueNode(value);
     lf_node->head = dummy;
@@ -273,23 +266,21 @@ class SkipList {
   // Find the place to insert LeafNode
   search_place_to_insert:
     bool is_valid;
-    BaseNode *leaf_start_insert = SearchPlaceToInsertLeaf(key, is_valid);
+    BaseNode *leaf_start_insert;
+    LeafNode *leaf_next;  // leaf_start_insert->Next()
+    SearchPlaceToInsertLeaf(key, is_valid, leaf_start_insert, leaf_next);
+
+    // if (++cnt_g > 3000) {
+    //   PrintSkipList2("list_printout.txt");
+    //   StructuralIntegrityCheck();
+    //   exit(0);
+    // }
+
     if (is_valid) {
-      // If leaf_start_insert is a leafnode,
-      // it's possible that other threads cut leaf_start_insert off the leaf
-      // chain. We dont risk.
-      if (leaf_start_insert->GetNodeType() == NodeType::LeafNode) {
-        BaseNode *v_node = ((LeafNode *)leaf_start_insert)->head->Next();
-        if (v_node == NULL) goto search_place_to_insert;
-      }
       // pack the next node of the leaf.
-      lf_node->succ = PackSucc(leaf_start_insert->Next(), UNMARKED);
-      if (lf_node->Next() &&
-          !KeyCmpGreater(((LeafNode *)(lf_node->Next()))->key, key)) {
-        goto search_place_to_insert;
-      }
+      lf_node->succ = PackSucc(leaf_next, UNMARKED);
       while (!__sync_bool_compare_and_swap(&(leaf_start_insert->succ),
-                                           PackSucc(lf_node->Next(), UNMARKED),
+                                           PackSucc(leaf_next, UNMARKED),
                                            PackSucc(lf_node, UNMARKED))) {
         goto search_place_to_insert;
       }
@@ -300,6 +291,7 @@ class SkipList {
       int levels =
           MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >>
                                       27];
+      // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, levels = %d\n", __LINE__, key, value, lf_node, levels);
       InnerNode *in_nodes[levels];
       if (levels > 0) {
         for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
@@ -316,56 +308,104 @@ class SkipList {
           in_nodes[0]->down = lf_node;
         }
       }
+      int stop_level = -1;
       // Find the position to insert InnerNode for each level
       for (int i = 1; i <= levels; i++) {
+        //if find delete.
+        if (lf_node->GetMarkBit()) {
+          // LOG_DEBUG("Node %d has been deleted from level 0 while tower is building.\n", key);
+          stop_level = i - 1;
+          break;
+        }
       link_level_i:
-        void *ptr = SearchLower(key, i);
+        // if (++cnt_g > 3000) {
+        //   PrintSkipList2("list_printout.txt");
+        //   StructuralIntegrityCheck();
+        //   exit(0);
+        // }
+        BaseNode *ptr = Search(key, i);
         if (ptr == NULL) {
-          in_nodes[i - 1]->succ = PackSucc(head_nodes[i].Next(), UNMARKED);
-          if (in_nodes[i - 1]->Next() &&
-              !KeyCmpGreater(((InnerNode *)(in_nodes[i - 1]->Next()))->key,
-                             key)) {
-            goto link_level_i;
-          }
-          while (!__sync_bool_compare_and_swap(
-                     &head_nodes[i].succ,
-                     PackSucc(in_nodes[i - 1]->Next(), UNMARKED),
-                     PackSucc(in_nodes[i - 1], UNMARKED))) {
-            goto link_level_i;
-          }
+          ptr = &head_nodes[i];
+        }
+        InnerNode *next = (InnerNode *)ptr->Next();
+        
+        if (next != NULL && KeyCmpLessEqual(((InnerNode *)next)->key, key)) {
+          // Someone has just inserted a node to the beginning of this level 
+          goto link_level_i;
+        }
+
+        if (ptr) {
+          // // LOG_DEBUG("Line %d: Insert(%d, %d): ptr->type = %hd\n", __LINE__, key, mvalue, ((InnerNode *)ptr)->type);
+          // LOG_DEBUG("Line %d: Insert(%d, %d): ptr->key = %d\n", __LINE__, key, value, ((InnerNode *)ptr)->key);
         } else {
-          in_nodes[i - 1]->succ =
-              PackSucc(((InnerNode *)(ptr))->Next(), UNMARKED);
-          if (in_nodes[i - 1]->Next() &&
-              !KeyCmpGreater(((InnerNode *)(in_nodes[i - 1]->Next()))->key,
-                             key)) {
-            goto link_level_i;
-          }
-          while (!__sync_bool_compare_and_swap(
-                     &(((InnerNode *)(ptr))->succ),
-                     PackSucc(in_nodes[i - 1]->Next(), UNMARKED),
-                     PackSucc(in_nodes[i - 1], UNMARKED))) {
-            goto link_level_i;
-          }
+          // LOG_DEBUG("Line %d: Insert(%d, %d): ptr is NULL\n", __LINE__, key, value);
+        }
+        if (next) {
+          // LOG_DEBUG("Line %d: Insert(%d, %d): next->key = %d, key = %d\n", __LINE__, key, value, ((InnerNode *)next)->key, key);
+        } else {
+          // LOG_DEBUG("Line %d: Insert(%d, %d): next is NULL\n", __LINE__, key, value);
+        }
+
+        if (next) {
+          PL_ASSERT(KeyCmpLessEqual(key, ((InnerNode *)next)->key));
+          PL_ASSERT(next->type == NodeType::InnerNode);
+        }
+
+        in_nodes[i - 1]->succ = PackSucc(next, UNMARKED);
+        
+        // LOG_DEBUG("Line %d: Insert(%d, %d): ptr = %p\n", __LINE__, key, value, ptr);
+        // LOG_DEBUG("Line %d: Insert(%d, %d): ptr->succ = %llx\n", __LINE__, key, value, ptr->succ);
+        // LOG_DEBUG("Line %d: Insert(%d, %d): next = %p\n", __LINE__, key, value, next);
+        if (!__sync_bool_compare_and_swap(
+            &(ptr->succ), PackSucc(next, UNMARKED),
+            PackSucc(in_nodes[i - 1], UNMARKED))) {
+          goto link_level_i;
         }
       }
-    // Add additional levels if the tower exceeds the maximum height
-    update_max_level:
-      int cur_max_level = max_level;
-      if (levels > cur_max_level) {
-        while (
-            !__sync_bool_compare_and_swap(&max_level, cur_max_level, levels)) {
-          goto update_max_level;
-        }
+      //if not deleted.
+      if(stop_level == -1) {
+         // Add additional levels if the tower exceeds the maximum height
+        update_max_level:
+          int cur_max_level = max_level;
+          if (levels > cur_max_level) {
+            while (
+                !__sync_bool_compare_and_swap(&max_level, cur_max_level, levels)) {
+              goto update_max_level;
+            }
+          } 
+      } else {
+          //start to delete branch.
+          //leaf node will be deleted by that branch.
+         if (stop_level != 0) {
+            // LOG_DEBUG("When inserting (%d, %d), stop_level = %d\n", key, value, stop_level);
+            //garbage collect all the nodes from highest to stop.
+            for(int i = stop_level + 1; i < levels; i++) {
+              epoch_manager.AddGarbageNode(in_nodes[i - 1]);
+            }
+            // when we want to delete the whole branch.
+            for (int i = stop_level; i >= 1; i--) {
+              //already find the place to be deleted.
+              // LOG_DEBUG("Line %d: DeleteLevelNode(key=%d, level=%d, node=%p)\n", __LINE__, key, i, in_nodes[i - 1]);
+              if (!DeleteLevelNode(in_nodes[i - 1], i)) {
+                // LOG_DEBUG("already find the place to be deleted.\n");
+                break;
+              }
+              // should I change this to linkedlist style too?
+              // I want to set the previous next to be null.
+              epoch_manager.AddGarbageNode(in_nodes[i - 1]);
+            }
+         }
       }
       epoch_manager.LeaveEpoch(epoch_node_p);
+      // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, insertion finished.\n", __LINE__, key, value, lf_node);
       return true;
     } else {
-      // someone has insert this leafNode
+      // someone has inserted this leafNode
       if (!duplicated_key) {
         epoch_manager.AddGarbageNode(lf_node);
         epoch_manager.AddGarbageNode(v_node);
         epoch_manager.LeaveEpoch(epoch_node_p);
+        // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, insertion finished.\n", __LINE__, key, value, lf_node);
         return false;
       }
 
@@ -373,7 +413,9 @@ class SkipList {
       v_node->succ =
           PackSucc(((LeafNode *)leaf_start_insert)->head->Next(), UNMARKED);
       // if v_node is null - the node is being deleted by the other thread.
-      if (v_node->Next() == NULL) goto search_place_to_insert;
+      if (v_node->Next() == NULL) {
+        goto search_place_to_insert;
+      }
       // check if already contains the same value
       ValueNode *ptr = (ValueNode *)(v_node->Next());
       bool same = false;
@@ -388,22 +430,25 @@ class SkipList {
         epoch_manager.AddGarbageNode(lf_node);
         epoch_manager.AddGarbageNode(v_node);
         epoch_manager.LeaveEpoch(epoch_node_p);
+        // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, insertion finished.\n", __LINE__, key, value, lf_node);
         return false;
       } else {
         // update head so that it points to you
         while (!__sync_bool_compare_and_swap(
-                   &(((LeafNode *)leaf_start_insert)->head->succ),
-                   PackSucc((ValueNode *)(v_node->Next()), UNMARKED),
-                   PackSucc(v_node, UNMARKED))) {
+            &(((LeafNode *)leaf_start_insert)->head->succ), v_node->succ,
+            PackSucc(v_node, UNMARKED))) {
           goto search_place_to_insert;
         }
         // we don't need this leaf node because we add into an existing leaf.
         epoch_manager.AddGarbageNode(lf_node);
         // should we add dummy node int ogarbage collection?
         epoch_manager.LeaveEpoch(epoch_node_p);
+        // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, insertion finished.\n", __LINE__, key, value, lf_node);
         return true;
       }
     }
+    PL_ASSERT(!(lf_node->GetMarkBit()));
+    // LOG_DEBUG("Line %d: in Insert(%d, %d), lf_node = %p, insertion finished.\n", __LINE__, key, value, lf_node);
     return true;
   }
 
@@ -415,6 +460,7 @@ class SkipList {
    * specific <key, value> pair.
    */
   bool Delete(const KeyType &key, const ValueType &value) {
+    // LOG_DEBUG("Delete (%d, %d)\n", key, value);
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
     // Check if skiplist is empty
     if (IsEmpty()) {
@@ -424,7 +470,7 @@ class SkipList {
 
     // find the first level containing this key.
     // we don't allow insert if it's deleted - won't be misleading.
-    void *start_node = NULL;
+    BaseNode *start_node = NULL;
     int start_level = -1;
     for (int i = max_level; i >= 0; i--) {
       // search all the levels until I got my node.
@@ -449,13 +495,16 @@ class SkipList {
       return false;
     }
     // find the leafNode to delete
+    // LOG_DEBUG("Line %d: in Delete(%d, %d) start_level = %d.\n", __LINE__, key, value, start_level);
     LeafNode *leafNode = (LeafNode *)FindLeafNode(start_node, start_level);
     if (leafNode == NULL) {
       // TODO: to delete this branch because it's deleted by someone else.
       epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
     }
+    // LOG_DEBUG("Line %d: in Delete(%d, %d) leafNode = %p, leafNode->type = %hd.\n", __LINE__, key, value, leafNode, leafNode->type);
     // find the node to be deleted
+    PL_ASSERT(leafNode->type == NodeType::LeafNode);
     ValueNode *node_to_delete = SearchValueNode(leafNode, value);
     // no such node. - already been deleted or not exist at all.
     if (node_to_delete == NULL) {
@@ -465,6 +514,7 @@ class SkipList {
 
     void *findPrev = NULL;
     // node already is deleted by others.
+
     if (!(findPrev = DeleteValueNode(leafNode, node_to_delete))) {
       epoch_manager.LeaveEpoch(epoch_node_p);
       return false;
@@ -482,16 +532,19 @@ class SkipList {
     // but no matter of what, it should give you prev.
     if (delete_branch) {
       // when we want to delete the whole branch.
+      // LOG_DEBUG("Line %d: Delete tower (key=%d, start_level=%d)\n", __LINE__, key, start_level);
       for (int i = start_level; i >= 0; i--) {
+        // LOG_DEBUG("Line %d: DeleteLevelNode(key=%d, level=%d, node=%p)\n", __LINE__, key, i, start_node);
         if (!DeleteLevelNode(start_node, i)) {
+          //it's possible that the node is deleted from above
           epoch_manager.LeaveEpoch(epoch_node_p);
-          return false;
+          return true;
         }
         BaseNode *temp = (BaseNode *)start_node;
         // move to next level.
         // if not the level 0.
         if (i != 0) {
-          start_node = (void *)((InnerNode *)start_node)->down;
+          start_node = ((InnerNode *)start_node)->down;
         }
         // should I change this to linkedlist style too?
         // I want to set the previous next to be null.
@@ -507,8 +560,11 @@ class SkipList {
    * the level linked list
    ********************************************************/
   bool DeleteLevelNode(void *del_node, int level) {
-  delete_list_node:
     void *prev = SearchNode(del_node, level);
+    // Fail to find the node
+    if (prev == NULL) {
+      return false;
+    }
     // update max_level.
     if (level != 0) {
       if (prev == &head_nodes[level] &&
@@ -533,6 +589,8 @@ class SkipList {
       if (cas_ret == PackSucc((BaseNode *)del_next, MARKED)) {
         // Case 1: Another thread has already marked it and is about to delete
         // it
+        // PL_ASSERT(false); // TODO: only for debug. delete this.
+        // assert(false);
         return false;
       } else if (cas_ret == PackSucc((BaseNode *)del_next, UNMARKED)) {
         // success.
@@ -541,13 +599,16 @@ class SkipList {
       // Case 3: del_node->Next() has changed. A node has been either inserted
       // or deleted. Reload del_next.
     }
+    // LOG_DEBUG("Line %d: successfully marked %p\n", __LINE__, del_node);
+
     // Try to physically delete the node
     while (!__sync_bool_compare_and_swap(
-               &(((BaseNode *)prev)->succ),
-               PackSucc((BaseNode *)del_node, UNMARKED),
-               PackSucc((BaseNode *)del_next, UNMARKED))) {
-      goto delete_list_node;
+        &(((BaseNode *)prev)->succ), PackSucc((BaseNode *)del_node, UNMARKED),
+        PackSucc((BaseNode *)del_next, UNMARKED))) {
+      prev = SearchNode(del_node, level);
     }
+    // LOG_DEBUG("Line %d: physically deleted %p\n", __LINE__, del_node);
+    // LOG_DEBUG("Line %d: prev->succ = %llx.\n", __LINE__, ((BaseNode *)prev)->succ);
     return true;
   }
 
@@ -555,7 +616,6 @@ class SkipList {
    * To delete the value node in the list
    */
   void *DeleteValueNode(LeafNode *leafNode, void *del_node) {
-  delete_value_node:
     // start to cmp swap this.
     void *findPrev = SearchPrevValueNode(leafNode, (ValueNode *)del_node);
     // this value already has been deleted by another thread.
@@ -584,10 +644,10 @@ class SkipList {
     }
     // Try to physically delete the node
     while (!__sync_bool_compare_and_swap(
-               &(((BaseNode *)findPrev)->succ),
-               PackSucc((BaseNode *)del_node, UNMARKED),
-               PackSucc((BaseNode *)del_next, UNMARKED))) {
-      goto delete_value_node;
+        &(((BaseNode *)findPrev)->succ),
+        PackSucc((BaseNode *)del_node, UNMARKED),
+        PackSucc((BaseNode *)del_next, UNMARKED))) {
+        findPrev = SearchPrevValueNode(leafNode, (ValueNode *)del_node);
     }
     return findPrev;
   }
@@ -794,6 +854,33 @@ class SkipList {
     std::cout << std::endl;
   }
 
+  void PrintSkipList2(char *path) {
+    FILE *f = fopen(path, "w");
+    for (int i = max_level; i > 0; i--) {
+      fprintf(f, "Level %d :", i);
+      InnerNode *cur = static_cast<InnerNode *>(head_nodes[i].Next());
+      while (cur != NULL) {
+        fprintf(f, "%d--->", cur->key);
+        cur = static_cast<InnerNode *>(cur->Next());
+      }
+      fprintf(f, "\n");
+    }
+    fprintf(f, "Level 0 :");
+    LeafNode *cur = static_cast<LeafNode *>(head_nodes[0].Next());
+    while (cur != NULL) {
+      fprintf(f, "(%d, [", cur->key);
+      // print value chain
+      ValueNode *ptr = (ValueNode *)(cur->head->Next());
+      while (ptr != NULL) {
+        fprintf(f, "%d, ", ptr->value);
+        ptr = (ValueNode *)(ptr->Next());
+      }
+      fprintf(f, "]) ---> ");
+      cur = static_cast<LeafNode *>(cur->Next());
+    }
+    fprintf(f, "\n");
+  }
+
   bool StructuralIntegrityCheck() {
     // Check if max_level is valid
     std::cout << "Checking max_level ... " << std::flush;
@@ -842,7 +929,8 @@ class SkipList {
 
     // Check if each InnerNode can reach a LeafNode that has the same key value
     std::cout << "Checking if InnerNode can reach a LeafNode that has the same "
-                 "key value ... " << std::flush;
+                 "key value ... "
+              << std::flush;
     for (int i = 1; i < MAX_NUM_LEVEL; i++) {
       InnerNode *cur = (InnerNode *)(head_nodes[i].Next());
       while (cur != NULL) {
@@ -911,16 +999,16 @@ class SkipList {
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
    * */
-  void *Search(const KeyType &key, int level) {
+  BaseNode *Search(const KeyType &key, int level) {
     // Check if skiplist is empty and valid parameter
     if (IsEmpty()) return NULL;
     if (level > max_level || level < 0) return NULL;
 
-    void *ptr = SearchLower(key, level);
+    BaseNode *ptr = SearchLower(key, level);
     if (ptr != NULL) {
       if (level == 0) {
         LeafNode *next = (LeafNode *)(((LeafNode *)ptr)->Next());
-        if (next != NULL && key_eq_obj(next->key, key))
+        if (next != NULL && key_eq_obj((next)->key, key))
           return next;
         else
           return ptr;
@@ -948,6 +1036,13 @@ class SkipList {
     }
   }
 
+  BaseNode *SearchLower(const KeyType &key, int level) {
+    BaseNode *prev;
+    BaseNode *next;
+    SearchLower(key, level, prev, next);
+    return prev;
+  }
+
   /* It returns the pointer to the node with the largest key strictly < @key
    * at @level. If there are multiple largest nodes when duplicated keys are
    * allowed, it returns the last one.
@@ -970,14 +1065,18 @@ class SkipList {
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
    * */
-  void *SearchLower(const KeyType &key, int level) {
+  void SearchLower(const KeyType &key, int level, BaseNode *&prev,
+                   BaseNode *&next) {
     // Check if skiplist is empty
-    if (IsEmpty()) return NULL;
-    if (level > max_level || level < 0) return NULL;
+    if (IsEmpty() || level > max_level || level < 0) {
+      prev = NULL;
+      next = NULL;
+      return;
+    }
 
     int cur_level = max_level;
     InnerNode *cur = (InnerNode *)head_nodes[cur_level].Next();
-    void *prev = NULL;
+    prev = NULL;
     while (1) {
       if (cur_level == 0) {
         LeafNode *leaf_cur = (LeafNode *)cur;
@@ -986,19 +1085,43 @@ class SkipList {
           leaf_cur = (LeafNode *)(leaf_cur->Next());
         }
       } else {
+        // find cur s.t. cur->key >= key
         while (cur != NULL && KeyCmpLess(cur->key, key)) {
-          prev = cur;
+          if (cur->down->GetMarkBit()) {
+            // The node below "prev" has been physically deleted from the list. We should delete "prev" too.
+            DeleteLevelNode(cur, cur_level);
+          } else {
+            prev = cur;
+          }
+          
           cur = (InnerNode *)(cur->Next());
         }
       }
-      if (cur_level == level) return prev;
+
+      if (cur_level == level) {
+        next = cur;
+        if (level > 0) {
+          PL_ASSERT(prev == NULL || prev->type == NodeType::InnerNode);
+        } else {
+          PL_ASSERT(prev == NULL || prev->type == NodeType::LeafNode);
+        }
+        return;
+      }
+
+      if(cur_level == 0) {
+        prev = NULL;
+        cur = NULL;
+        return;
+      }
       cur_level--;
+      PL_ASSERT(cur_level >= 0);
       if (prev == NULL) {
         cur = (InnerNode *)head_nodes[cur_level].Next();
       } else {
         cur = (InnerNode *)(((InnerNode *)prev)->down);
         prev = NULL;
       }
+      
     }
   }
 
@@ -1089,11 +1212,16 @@ class SkipList {
   /***
    * Find the leaf node given the start node
    */
-  void *FindLeafNode(void *start_node, int level) {
-    void *leaf_node = start_node;
+  void *FindLeafNode(BaseNode *start_node, int level) {
+    BaseNode *leaf_node = start_node;
     for (int i = level; i >= 1; i--) {
+      // This inner node has already been deleted
+      if (start_node->GetMarkBit()) {
+        return NULL;
+      }
       leaf_node = ((InnerNode *)leaf_node)->down;
     }
+    PL_ASSERT(leaf_node->type == NodeType::LeafNode);
     return leaf_node;
   }
 
@@ -1327,18 +1455,18 @@ class SkipList {
       // measure just force cleaning all epoches no matter whether they
       // are cleared or not
       if (head_epoch_p != nullptr) {
-        LOG_DEBUG("ERROR: After cleanup there is still epoch left");
-        LOG_DEBUG("%s", peloton::GETINFO_THICK_LINE.c_str());
-        LOG_DEBUG("DUMP");
+        // LOG_DEBUG("ERROR: After cleanup there is still epoch left");
+        // LOG_DEBUG("%s", peloton::GETINFO_THICK_LINE.c_str());
+        // LOG_DEBUG("DUMP");
 
         for (EpochNode *epoch_node_p = head_epoch_p; epoch_node_p != nullptr;
              epoch_node_p = epoch_node_p->next_p) {
-          LOG_DEBUG("Active thread count: %d",
-                    epoch_node_p->active_thread_count.load());
+          // LOG_DEBUG("Active thread count: %d",
+                    epoch_node_p->active_thread_count.load();
           epoch_node_p->active_thread_count = 0;
         }
 
-        LOG_DEBUG("RETRY CLEANING...");
+        // LOG_DEBUG("RETRY CLEANING...");
         ClearEpoch();
       }
 
@@ -1505,7 +1633,7 @@ class SkipList {
           break;
         }
         default:
-          LOG_DEBUG("We never delete other types of nodes");
+          // LOG_DEBUG("We never delete other types of nodes");
           break;
       }
     // Update memory used
