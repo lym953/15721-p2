@@ -304,7 +304,7 @@ class SkipList {
       int stop_level = -1;
       // Find the position to insert InnerNode for each level
       for (int i = 1; i <= levels; i++) {
-        // if find delete.
+        // If leaf node has been logically deleted, then stop building the tower
         if (lf_node->GetMarkBit()) {
           stop_level = i - 1;
           break;
@@ -806,6 +806,9 @@ class SkipList {
     std::cout << std::endl;
   }
 
+  /*
+   * PrintSkipList2() - Print skip list to a file
+   */
   void PrintSkipList2(char *path) {
     FILE *f = fopen(path, "w");
     for (int i = max_level; i > 0; i--) {
@@ -987,13 +990,6 @@ class SkipList {
     }
   }
 
-  BaseNode *SearchLower(const KeyType &key, int level) {
-    BaseNode *prev;
-    BaseNode *next;
-    SearchLower(key, level, prev, next);
-    return prev;
-  }
-
   /* It returns the pointer to the node with the largest key strictly < @key
    * at @level. If there are multiple largest nodes when duplicated keys are
    * allowed, it returns the last one.
@@ -1015,7 +1011,14 @@ class SkipList {
    *
    * It returns NULL if @level is invalid, meaning @level is not in
    * [0, MAX_NUM_LEVEL-1].
-   * */
+   */
+  BaseNode *SearchLower(const KeyType &key, int level) {
+    BaseNode *prev;
+    BaseNode *next;
+    SearchLower(key, level, prev, next);
+    return prev;
+  }
+
   void SearchLower(const KeyType &key, int level, BaseNode *&prev,
                    BaseNode *&next) {
     // Check if skiplist is empty
@@ -1052,11 +1055,6 @@ class SkipList {
 
       if (cur_level == level) {
         next = cur;
-        if (level > 0) {
-          PL_ASSERT(prev == NULL || prev->type == NodeType::InnerNode);
-        } else {
-          PL_ASSERT(prev == NULL || prev->type == NodeType::LeafNode);
-        }
         return;
       }
 
