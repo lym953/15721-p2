@@ -20,6 +20,9 @@
 #include <utility>
 #include <vector>
 
+#include "common/logger.h"
+#include "common/macros.h"
+#include "util/string_util.h"
 namespace peloton {
 namespace index {
 /*
