@@ -1431,7 +1431,6 @@ class SkipList {
           FreeNode(garbage_node_p->node_p);
 
           next_garbage_node_p = garbage_node_p->next_p;
-          // printf("free garbage_node:%p \n", garbage_node_p);
           delete garbage_node_p;
         }
 
@@ -1439,11 +1438,6 @@ class SkipList {
 
         delete head_epoch_p;
 
-        // Then advance to the next epoch
-        // It is possible that head_epoch_p becomes nullptr
-        // this happens during destruction, and should not
-        // cause any problem since that case we also set current epoch
-        // pointer to nullptr
         head_epoch_p = next_epoch_node_p;
       }
 
