@@ -11,14 +11,14 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
-#include <atomic>
+#include <vector>
+#include <utility>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <set>
+#include <atomic>
 #include <thread>
-#include <utility>
-#include <vector>
 
 #include "common/logger.h"
 #include "common/macros.h"
@@ -28,13 +28,15 @@ namespace index {
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
-#define SKIPLIST_TEMPLATE_ARGUMENTS                                       \
-  template <typename KeyType, typename ValueType, typename KeyComparator, \
+#define SKIPLIST_TEMPLATE_ARGUMENTS                                            \
+  template <typename KeyType, typename ValueType, typename KeyComparator,      \
             typename KeyEqualityChecker, typename ValueEqualityChecker>
 
-#define SKIPLIST_TYPE                                             \
-  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
+#define SKIPLIST_TYPE                                                          \
+  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker,              \
            ValueEqualityChecker>
+
+#define MAX_LEVEL 31
 
 #define MAX_NUM_LEVEL 32
 
@@ -48,17 +50,70 @@ namespace index {
 #define MAX_THREAD_COUNT ((int)0x7FFFFFFF)
 
 template <typename KeyType, typename ValueType, typename KeyComparator,
-          typename KeyEqualityChecker, typename ValueEqualityChecker>
+    typename KeyEqualityChecker, typename ValueEqualityChecker>
 class SkipList {
   // Public Classes Declarations
  public:
   class EpochManager;
   class BaseNode;
-  class HeadNode;
-  class InnerNode;
-  class LeafNode;
   class ValueNode;
   class ForwardIterator;
+  class ValueChain;
+  class Node;
+
+ public:
+  // members
+  Node *head;
+  Node *tail;
+
+ public:
+  // Constructor
+  SkipList(bool p_duplicated_key = false,
+           KeyComparator p_key_cmp_obj = KeyComparator{},
+           KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
+           ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
+      : duplicated_key(p_duplicated_key), key_cmp_obj(p_key_cmp_obj),
+        key_eq_obj(p_key_eq_obj), value_eq_obj(p_value_eq_obj),
+
+        epoch_manager(this) {
+    LOG_TRACE("SkipList Constructor called. "
+                  "Setting up execution environment...");
+
+    size_of_node = (sizeof(Node));
+    size_of_value_node = (sizeof(ValueNode));
+    size_of_data_node = (sizeof(DataNode));
+
+    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu", size_of_value_node,
+              size_of_value_node, size_of_data_node);
+
+    head = new Node();
+    tail = new Node();
+    for (size_t i = 0; i < head->next.size(); i++) {
+      head->next[i] = tail;
+    }
+
+    LOG_TRACE("Starting epoch manager thread...");
+    epoch_manager.StartThread();
+  };
+
+  // Destructor
+  ~SkipList() {
+    // Free alive nodes
+    Node *ptr = head;
+    while (ptr) {
+      Node *temp = ptr;
+      ptr = ptr->next[0];
+      if (temp->GetNodeType() == NodeType::Node) {
+        delete (Node *)temp;
+      } else {
+        delete (DataNode *)temp;
+      }
+    }
+    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu", size_of_value_node,
+              size_of_value_node, size_of_data_node);
+
+    // TODO: Free dead nodes, i.e., nodes are in the memory pool.
+  }
 
  public:
   using KeyValuePair = std::pair<KeyType, ValueType>;
@@ -70,10 +125,9 @@ class SkipList {
   ///////////////////////////////////////////////////////////////////
   enum class NodeType : short {
     BaseNode = 0,
-    HeadNode = 1,
-    InnerNode = 2,
-    LeafNode = 3,
-    ValueNode = 4,
+    ValueNode = 1,
+    Node = 2,
+    DataNode = 3
   };
 
   class BaseNode {
@@ -83,24 +137,8 @@ class SkipList {
 
    public:
     NodeType GetNodeType() { return type; }
-    inline BaseNode *Next() { return GetNextFromSucc(succ); }
+    inline BaseNode *Next() { return (BaseNode *)GetNextFromSucc(succ); }
     inline int GetMarkBit() { return GetMarkBitFromSucc(succ); }
-  };
-
-  class HeadNode : public BaseNode {
-   public:
-    HeadNode() { BaseNode::type = NodeType::HeadNode; }
-  };
-
-  class InnerNode : public BaseNode {
-   public:
-    KeyType key;
-    BaseNode *down;
-
-   public:
-    InnerNode(const KeyType &key) : key(key), down(NULL) {
-      BaseNode::type = NodeType::InnerNode;
-    }
   };
 
   class ValueNode : public BaseNode {
@@ -113,17 +151,207 @@ class SkipList {
     }
   };
 
-  class LeafNode : public BaseNode {
+  ///////////////////////////////////////////////////////////////////
+  // Node Class
+  ///////////////////////////////////////////////////////////////////
+
+  class Node : public BaseNode {
    public:
-    KeyType key;
-    ValueNode *head;
+    std::vector<Node *> next;
+    int top_level;
 
    public:
-    LeafNode(const KeyType &key) : key(key), head(NULL) {
-      BaseNode::type = NodeType::LeafNode;
+    // Constructor for sentinel nodes
+    Node() {
+      next.resize(MAX_LEVEL + 1);
+      for (size_t i = 0; i < next.size(); i++) {
+        next[i] = NULL;
+      }
+      top_level = MAX_LEVEL;
+      BaseNode::type = NodeType::Node;
     }
   };
 
+  class DataNode : public Node {
+   public:
+    SkipList *list;
+    KeyType key;
+    ValueChain *value_chain;
+
+   public:
+    // constructor for ordinary nodes
+    DataNode(SkipList *list, const KeyType &key, const ValueType &value,
+             int height) {
+      this->list = list;
+      this->key = key;
+      value_chain = new ValueChain(list, key, value);
+      Node::next.resize(height + 1);
+      for (size_t i = 0; i < Node::next.size(); i++) {
+        Node::next[i] = NULL;
+      }
+      Node::top_level = height;
+      BaseNode::type = NodeType::DataNode;
+    }
+
+    ~DataNode() { delete value_chain; }
+  };
+  ///////////////////////////////////////////////////////////////////
+  // ValueChain Class
+  ///////////////////////////////////////////////////////////////////
+
+  class ValueChain {
+   public:
+    SkipList *list;
+    KeyType key;
+    ValueNode *head;
+    ValueNode *tail;
+
+   public:
+    class Window {
+     public:
+      ValueNode *pred;
+      ValueNode *curr;
+      Window(ValueNode *my_pred, ValueNode *my_curr) {
+        pred = my_pred;
+        curr = my_curr;
+      }
+    };
+
+   public:
+    ValueChain(SkipList *list, const KeyType &key, const ValueType &value) {
+      this->list = list;
+      this->key = key;
+      head = new ValueNode(value);
+      tail = new ValueNode(value);
+      ValueNode *first_value = new ValueNode(value);
+      head->succ = PackSucc(first_value, UNMARKED);
+      first_value->succ = PackSucc(tail, UNMARKED);
+    }
+
+    ~ValueChain() {
+      ValueNode *ptr = head;
+      ValueNode *temp;
+      while (ptr) {
+        temp = ptr;
+        ptr = (ValueNode *)ptr->Next();
+        delete temp;
+      }
+    }
+
+    bool AttempMark(BaseNode *curr, BaseNode *succ) {
+      return __sync_bool_compare_and_swap(
+          &(curr->succ), PackSucc(succ, UNMARKED), PackSucc(succ, MARKED));
+    }
+
+    void PrintValueChain() {
+      std::cout << "(" << key << ", "
+                << "[" << std::flush;
+      ValueNode *ptr = (ValueNode *)head->Next();
+      while (ptr != tail) {
+        std::cout << ptr->value << ", ";
+        ptr = (ValueNode *)ptr->Next();
+      }
+      std::cout << "])" << std::endl;
+    }
+
+    bool Add(const ValueType &value) {
+      EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
+      // printf("Call Add(%d)\n", value);
+      while (true) {
+        Window window = Find(head, value);
+        ValueNode *pred = window.pred;
+        ValueNode *curr = window.curr;
+
+        if (pred == head && curr == tail) {
+          list->epoch_manager.LeaveEpoch(epoch_node_p);
+          return false;
+        }
+
+        // printf("what goes wront?\n");
+        if (curr != tail && list->value_eq_obj(curr->value, value)) {
+          list->epoch_manager.LeaveEpoch(epoch_node_p);
+          return false;
+        } else {
+          // printf("adding %d\n", value);
+          ValueNode *node = new ValueNode(value);
+          node->succ = PackSucc(curr, UNMARKED);
+          if (__sync_bool_compare_and_swap(&(pred->succ),
+                                           PackSucc(curr, UNMARKED),
+                                           PackSucc(node, UNMARKED))) {
+            list->epoch_manager.LeaveEpoch(epoch_node_p);
+            return true;
+          }
+        }
+      }
+    }
+
+    bool Delete(const ValueType &value) {
+      EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
+      bool snip;
+      while (true) {
+        Window window = Find(head, value);
+        ValueNode *pred = window.pred;
+        ValueNode *curr = window.curr;
+        if (curr == tail || !list->value_eq_obj(curr->value, value)) {
+          list->epoch_manager.LeaveEpoch(epoch_node_p);
+          return false;
+        } else {
+          ValueNode *succ = (ValueNode *)curr->Next();
+          snip = AttempMark(curr, succ);
+          if (!snip)
+            continue;
+          if (__sync_bool_compare_and_swap(&(pred->succ),
+                                           PackSucc(curr, UNMARKED),
+                                           PackSucc(succ, UNMARKED))) {
+            list->epoch_manager.AddGarbageNode(curr);
+          }
+          list->epoch_manager.LeaveEpoch(epoch_node_p);
+          return true;
+        }
+      }
+    }
+
+    Window Find(ValueNode *head, const ValueType &value) {
+      // printf("call find (%d)\n", value);
+      EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
+      ValueNode *pred = NULL;
+      ValueNode *curr = NULL;
+      ValueNode *succ = NULL;
+      bool marked = false;
+      bool snip;
+      retry:
+      while (true) {
+        pred = head;
+        PL_ASSERT(pred);
+        curr = (ValueNode *)pred->Next();
+        while (true) {
+          succ = (ValueNode *)GetAddressAndMarkBit((void *)curr->succ, marked);
+          while (marked) {
+            // printf("current is marked\n");
+            snip = __sync_bool_compare_and_swap(&(pred->succ),
+                                                PackSucc(curr, UNMARKED),
+                                                PackSucc(succ, UNMARKED));
+            if (!snip)
+              goto retry;
+            list->epoch_manager.AddGarbageNode(curr);
+            curr = succ;
+            succ =
+                (ValueNode *)GetAddressAndMarkBit((void *)curr->succ, marked);
+          }
+          if (curr == tail || list->value_eq_obj(curr->value, value)) {
+            list->epoch_manager.LeaveEpoch(epoch_node_p);
+            return Window(pred, curr);
+          }
+          pred = curr;
+          curr = succ;
+          PL_ASSERT(pred != tail);
+          PL_ASSERT(curr != NULL);
+        }
+      }
+    }
+
+    bool IsFrozen() { return head->Next() == tail; }
+  };
   ///////////////////////////////////////////////////////////////////
   // Key Comparison Member Functions
   ///////////////////////////////////////////////////////////////////
@@ -167,7 +395,7 @@ class SkipList {
   inline bool KeyValueCmpEqual(const KeyValuePair &kvp1,
                                const KeyValuePair &kvp2) const {
     return (key_eq_obj(kvp1.first, kvp2.first) &&
-            value_eq_obj(kvp1.second, kvp2.second));
+        value_eq_obj(kvp1.second, kvp2.second));
   }
 
   /**
@@ -188,431 +416,239 @@ class SkipList {
     return succ & 0b1;
   }
 
+  static BaseNode *GetNextAndMarkBit(BaseNode *node, bool &marked) {
+    uint64_t succ = node->succ;
+    marked = GetMarkBitFromSucc(succ);
+    BaseNode *address = GetNextFromSucc(succ);
+    return address;
+  }
+
+  static bool AttempMark(Node *&address, Node *expected) {
+    return __sync_bool_compare_and_swap(&address, PackSucc(expected, UNMARKED),
+                                        PackSucc(expected, MARKED));
+  }
+
+  static void *GetAddressAndMarkBit(void *address, bool &marked) {
+    marked = GetMarkBitFromSucc((uint64_t)address);
+    return GetNextFromSucc((uint64_t)address);
+  }
+
   /*
    * GetNextFromSucc() - Get "next" pointer from successor field
    */
-  inline static BaseNode *GetNextFromSucc(uint64_t succ) {
-    return (BaseNode *)(succ & ~0b1);
+  inline static void *GetNextFromSucc(uint64_t succ) {
+    return (void *)(succ & ~0b1);
   }
 
   /*
    * PackSucc() - Pack "next" pointer and "mark" bit into a 64-bit successor
    * field
    */
-  inline static uint64_t PackSucc(BaseNode *next, uint64_t marked) {
+  inline static uint64_t PackSucc(void *next, uint64_t marked) {
     return ((uint64_t)next) | marked;
   }
 
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
-
-  void SearchPlaceToInsertLeaf(const KeyType &key, bool &valid, BaseNode *&prev,
-                               LeafNode *&ptr) {
-    prev = (LeafNode *)SearchLower(key, 0);
-    if (prev == NULL) {
-      prev = (BaseNode *)&head_nodes[0];
+  void PrintVector(std::vector<Node *> v) {
+    std::cout << "( ";
+    for (size_t i = 0; i < v.size(); i++) {
+      std::cout << v[i] << ",";
     }
-    ptr = (LeafNode *)prev->Next();
-
-    while (ptr != NULL && !KeyCmpGreater(ptr->key, key)) {
-      prev = ptr;
-      ptr = (LeafNode *)ptr->Next();
-      if (prev->type == NodeType::LeafNode) {
-        bool same_key = key_eq_obj(((LeafNode *)prev)->key, key);
-        bool deleted = ((LeafNode *)prev)->head->Next() == NULL;
-        if (same_key && !deleted) {
-          // Found an undeleted leaf node with the same key
-          valid = false;
-          return;
-        }
-      }
-    }
-
-    // Fail to find an undeleted leaf node with the same key.
-    // Possible cases for prev at this point:
-    //   1. head_node[0] (when there is no prev < key)
-    //   2. prev < key
-    //   3. prev is the last deleted node having @key
-    PL_ASSERT(ptr == NULL || KeyCmpGreater(ptr->key, key));
-    valid = true;
+    std::cout << ")" << std::endl;
   }
 
-  /**
-   * TODO: add duumy into garbage collection?
-   * Insert then deleting.
-   */
   bool Insert(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-    // Create LeafNode and ValueNode and append
-    LeafNode *lf_node = new LeafNode(key);
+    // printf("Insert(%d, %d)\n", key, value);
+    int v = rand();
+    int top_level =
+        MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
+    int bottom_level = 0;
+    std::vector<Node *> preds(MAX_LEVEL + 1);
+    std::vector<Node *> succs(MAX_LEVEL + 1);
 
-    ValueNode *dummy = new ValueNode(value);  // this value is useless
-    ValueNode *v_node = new ValueNode(value);
-    lf_node->head = dummy;
-    dummy->succ = PackSucc(v_node, UNMARKED);
-
-    size_t memory_claimed =
-        size_of_leaf_node + size_of_inner_node + size_of_value_node;
-
-  // Update memory used
-  update_memory:
-    size_t cur_memory_used = memory_used;
-    while (!__sync_bool_compare_and_swap(&memory_used, cur_memory_used,
-                                         cur_memory_used + memory_claimed)) {
-      goto update_memory;
-    }
-
-  // Find the place to insert LeafNode
-  search_place_to_insert:
-    bool is_valid;
-    BaseNode *leaf_start_insert;
-    LeafNode *leaf_next;  // leaf_start_insert->Next()
-    SearchPlaceToInsertLeaf(key, is_valid, leaf_start_insert, leaf_next);
-
-    if (is_valid) {
-      // pack the next node of the leaf.
-      lf_node->succ = PackSucc(leaf_next, UNMARKED);
-      while (!__sync_bool_compare_and_swap(&(leaf_start_insert->succ),
-                                           PackSucc(leaf_next, UNMARKED),
-                                           PackSucc(lf_node, UNMARKED))) {
-        goto search_place_to_insert;
-      }
-
-      // Add Tower
-      // Determine the height of the tower
-      int v = rand();
-      int levels =
-          MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >>
-                                      27];
-      InnerNode *in_nodes[levels];
-      if (levels > 0) {
-        for (int i = 0; i < levels; i++) in_nodes[i] = new InnerNode(key);
-        if (levels > 1) {
-          // Link InnerNodes
-          for (int i = 1; i < levels - 1; i++) {
-            in_nodes[i]->down = in_nodes[i - 1];
+    while (true) {
+      retry:
+      bool temp = Find(key, preds, succs);
+      bool found = temp;
+      // PrintVector(preds);
+      // PrintVector(succs);
+      if (found) {
+        // printf("We found the key\n");
+        if (!duplicated_key) {
+          if (!((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
+            epoch_manager.LeaveEpoch(epoch_node_p);
+            return false;
+          } else {
+            // wait until the Node to be deleted
+            goto retry;
           }
-          // bottom innernode
-          in_nodes[0]->down = lf_node;
-          // top innernode
-          in_nodes[levels - 1]->down = in_nodes[levels - 2];
         } else {
-          in_nodes[0]->down = lf_node;
-        }
-      }
-      int stop_level = -1;
-      // Find the position to insert InnerNode for each level
-      for (int i = 1; i <= levels; i++) {
-        // If leaf node has been logically deleted, then stop building the tower
-        if (lf_node->GetMarkBit()) {
-          stop_level = i - 1;
-          break;
-        }
-      link_level_i:
-        BaseNode *ptr = Search(key, i);
-        if (ptr == NULL) {
-          ptr = &head_nodes[i];
-        }
-        InnerNode *next = (InnerNode *)ptr->Next();
-
-        if (next != NULL && KeyCmpLessEqual(((InnerNode *)next)->key, key)) {
-          // Someone has just inserted a node to the beginning of this level
-          goto link_level_i;
-        }
-
-        if (next) {
-          PL_ASSERT(KeyCmpLessEqual(key, ((InnerNode *)next)->key));
-          PL_ASSERT(next->type == NodeType::InnerNode);
-        }
-
-        in_nodes[i - 1]->succ = PackSucc(next, UNMARKED);
-
-        if (!__sync_bool_compare_and_swap(
-                &(ptr->succ), PackSucc(next, UNMARKED),
-                PackSucc(in_nodes[i - 1], UNMARKED))) {
-          goto link_level_i;
-        }
-      }
-      // if not deleted.
-      if (stop_level == -1) {
-      // Add additional levels if the tower exceeds the maximum height
-      update_max_level:
-        int cur_max_level = max_level;
-        if (levels > cur_max_level) {
-          while (!__sync_bool_compare_and_swap(&max_level, cur_max_level,
-                                               levels)) {
-            goto update_max_level;
-          }
-        }
-      } else {
-        // start to delete branch.
-        // leaf node will be deleted by that branch.
-        if (stop_level != 0) {
-          // garbage collect all the nodes from highest to stop.
-          for (int i = stop_level + 1; i < levels; i++) {
-            epoch_manager.AddGarbageNode(in_nodes[i - 1]);
-          }
-          // when we want to delete the whole branch.
-          for (int i = stop_level; i >= 1; i--) {
-            // already find the place to be deleted.
-            if (!DeleteLevelNode(in_nodes[i - 1], i)) {
-              break;
+          // allow duplicated key
+          bool success =
+              ((DataNode *)succs[bottom_level])->value_chain->Add(value);
+          if (success) {
+            epoch_manager.LeaveEpoch(epoch_node_p);
+            return true;
+          } else {
+            // Either because its frozen or the value alreay exists
+            if (((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
+              // wait until the Node to be deleted
+              goto retry;
+            } else {
+              // It must be the case that value already exists
+              epoch_manager.LeaveEpoch(epoch_node_p);
+              return false;
             }
-            // should I change this to linkedlist style too?
-            // I want to set the previous next to be null.
-            epoch_manager.AddGarbageNode(in_nodes[i - 1]);
           }
         }
-      }
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return true;
-    } else {
-      // someone has inserted this leafNode
-      if (!duplicated_key) {
-        epoch_manager.AddGarbageNode(lf_node);
-        epoch_manager.AddGarbageNode(v_node);
-        epoch_manager.LeaveEpoch(epoch_node_p);
-        return false;
-      }
-
-      // we allow duplicated key
-      v_node->succ =
-          PackSucc(((LeafNode *)leaf_start_insert)->head->Next(), UNMARKED);
-      // if v_node is null - the node is being deleted by the other thread.
-      if (v_node->Next() == NULL) {
-        goto search_place_to_insert;
-      }
-      // check if already contains the same value
-      ValueNode *ptr = (ValueNode *)(v_node->Next());
-      bool same = false;
-      while (ptr != NULL) {
-        if (value_eq_obj(ptr->value, value)) {
-          same = true;
-          break;
-        }
-        ptr = (ValueNode *)(ptr->Next());
-      }
-      if (same) {
-        epoch_manager.AddGarbageNode(lf_node);
-        epoch_manager.AddGarbageNode(v_node);
-        epoch_manager.LeaveEpoch(epoch_node_p);
-        return false;
       } else {
-        // update head so that it points to you
-        while (!__sync_bool_compare_and_swap(
-                   &(((LeafNode *)leaf_start_insert)->head->succ), v_node->succ,
-                   PackSucc(v_node, UNMARKED))) {
-          goto search_place_to_insert;
+        // printf("We did not find the key\n");
+        DataNode *new_node = new DataNode(this, key, value, top_level);
+        for (int level = bottom_level; level <= top_level; level++) {
+          Node *succ = succs[level];
+          new_node->next[level] = (Node *)PackSucc(succ, UNMARKED);
         }
-        // we don't need this leaf node because we add into an existing leaf.
-        epoch_manager.AddGarbageNode(lf_node);
-        // should we add dummy node int ogarbage collection?
+        Node *pred = preds[bottom_level];
+        Node *succ = succs[bottom_level];
+        new_node->next[bottom_level] = (Node *)PackSucc(succ, UNMARKED);
+        // printf("new node next pointer\n");
+        // PrintVector(new_node->next);
+        if (!__sync_bool_compare_and_swap(&(pred->next[bottom_level]),
+                                          PackSucc(succ, UNMARKED),
+                                          PackSucc(new_node, UNMARKED))) {
+          // printf("We failed chage pointers at level %d\n", 0);
+          continue;
+        }
+        // printf("We insert node(%d) level %d\n", key, 0);
+        for (int level = bottom_level + 1; level <= top_level; level++) {
+          while (true) {
+            pred = preds[level];
+            succ = succs[level];
+            if (__sync_bool_compare_and_swap(&(pred->next[level]),
+                                             PackSucc(succ, UNMARKED),
+                                             PackSucc(new_node, UNMARKED)))
+              break;
+            Find(key, preds, succs);
+          }
+        }
         epoch_manager.LeaveEpoch(epoch_node_p);
         return true;
       }
     }
-    PL_ASSERT(!(lf_node->GetMarkBit()));
-    return true;
   }
 
-  /**
-   * Implement delete operation.
-   * perform logical deletion - mark the base node as deleted.
-   * The physical deletion will be performed by garbage collection.
-   * The DeleteEntry function should erase only the index entry matching the
-   * specific <key, value> pair.
-   */
   bool Delete(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-    // Check if skiplist is empty
-    if (IsEmpty()) {
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return false;
-    }
-
-    // find the first level containing this key.
-    // we don't allow insert if it's deleted - won't be misleading.
-    BaseNode *start_node = NULL;
-    int start_level = -1;
-    for (int i = max_level; i >= 0; i--) {
-      // search all the levels until I got my node.
-      start_node = Search(key, i);
-      if (start_node != NULL) {
-        if (i != 0) {
-          if (KeyCmpEqual(((InnerNode *)start_node)->key, key)) {
-            start_level = i;
-            break;
-          }
-        } else {
-          if (KeyCmpEqual(((LeafNode *)start_node)->key, key)) {
-            start_level = i;
-            break;
-          }
-        }
-      }
-    }
-    // If I can't find a tower for this key. already deleted.
-    if (start_level == -1) {
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return false;
-    }
-    // find the leafNode to delete
-    LeafNode *leafNode = (LeafNode *)FindLeafNode(start_node, start_level);
-    if (leafNode == NULL) {
-      // TODO: to delete this branch because it's deleted by someone else.
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return false;
-    }
-    // find the node to be deleted
-    PL_ASSERT(leafNode->type == NodeType::LeafNode);
-    ValueNode *node_to_delete = SearchValueNode(leafNode, value);
-    // no such node. - already been deleted or not exist at all.
-    if (node_to_delete == NULL) {
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return false;
-    }
-
-    void *findPrev = NULL;
-    // node already is deleted by others.
-
-    if (!(findPrev = DeleteValueNode(leafNode, node_to_delete))) {
-      epoch_manager.LeaveEpoch(epoch_node_p);
-      return false;
-    }
-
-    epoch_manager.AddGarbageNode(node_to_delete);
-
-    // check whether we need to delete the whole branch.
-    bool delete_branch = false;
-    if (findPrev == leafNode->head && node_to_delete->Next() == NULL) {
-      delete_branch = true;
-    }
-    // start to delete this node. search from top to bottom.
-    // prev may be a normal inner node, or a head node.
-    // but no matter of what, it should give you prev.
-    if (delete_branch) {
-      // when we want to delete the whole branch.
-      for (int i = start_level; i >= 0; i--) {
-        if (!DeleteLevelNode(start_node, i)) {
-          // it's possible that the node is deleted from above
-          epoch_manager.LeaveEpoch(epoch_node_p);
-          return true;
-        }
-        BaseNode *temp = (BaseNode *)start_node;
-        // move to next level.
-        // if not the level 0.
-        if (i != 0) {
-          start_node = ((InnerNode *)start_node)->down;
-        }
-        // should I change this to linkedlist style too?
-        // I want to set the previous next to be null.
-        epoch_manager.AddGarbageNode(temp);
-      }
-    }
-    epoch_manager.LeaveEpoch(epoch_node_p);
-    return true;
-  }
-
-  /********************************************************
-   * This is the delete helper to delete the node from
-   * the level linked list
-   ********************************************************/
-  bool DeleteLevelNode(void *del_node, int level) {
-    void *prev = SearchNode(del_node, level);
-    // Fail to find the node
-    if (prev == NULL) {
-      return false;
-    }
-    // update max_level.
-    if (level != 0) {
-      if (prev == &head_nodes[level] &&
-          ((BaseNode *)del_node)->Next() == NULL) {
-        int cur_max_level = max_level;
-        if (cur_max_level == level) {
-          // do we care if this set fails?
-          __sync_bool_compare_and_swap(&max_level, cur_max_level,
-                                       cur_max_level - 1);
-        }
-      }
-    }
-    void *del_next;
+    // printf("Delete(%d, %d)\n", key, value);
+    int bottom_level = 0;
+    std::vector<Node *> preds(MAX_LEVEL + 1);
+    std::vector<Node *> succs(MAX_LEVEL + 1);
+    Node *succ;
     while (true) {
-      del_next = ((BaseNode *)del_node)->Next();
-      // Set mark bit
-      uint64_t cas_ret =
-          __sync_val_compare_and_swap(&(((BaseNode *)del_node)->succ),
-                                      PackSucc((BaseNode *)del_next, UNMARKED),
-                                      PackSucc((BaseNode *)del_next, MARKED));
-
-      if (cas_ret == PackSucc((BaseNode *)del_next, MARKED)) {
-        // Case 1: Another thread has already marked it and is about to delete
-        // it
+      bool found = Find(key, preds, succs);
+      if (!found) {
+        epoch_manager.LeaveEpoch(epoch_node_p);
         return false;
-      } else if (cas_ret == PackSucc((BaseNode *)del_next, UNMARKED)) {
-        // success.
-        break;
       }
-      // Case 3: del_node->Next() has changed. A node has been either inserted
-      // or deleted. Reload del_next.
+      // Try to delete the value first
+      bool succeed =
+          ((DataNode *)succs[bottom_level])->value_chain->Delete(value);
+      if (!succeed) {
+        epoch_manager.LeaveEpoch(epoch_node_p);
+        return false;
+      } else if (((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
+        // After you delete the value, the value_chain is frozen
+        // printf("the chain is forzen, need to delete the node\n");
+        Node *node_to_remove = succs[bottom_level];
+        for (int level = node_to_remove->top_level; level >= bottom_level + 1;
+             level--) {
+          bool marked = false;
+          succ =
+              (Node *)GetAddressAndMarkBit(node_to_remove->next[level], marked);
+          while (!marked) {
+            // printf("try to mark the node at high level \n");
+            AttempMark(node_to_remove->next[level], succ);
+            succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[level],
+                                                marked);
+          }
+        }
+        bool marked = false;
+        succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[bottom_level],
+                                            marked);
+        while (true) {
+          bool i_marked_it = __sync_bool_compare_and_swap(
+              &(node_to_remove->next[bottom_level]), PackSucc(succ, UNMARKED),
+              PackSucc(succ, MARKED));
+          succ = (Node *)GetAddressAndMarkBit(
+              node_to_remove->next[bottom_level], marked);
+          if (i_marked_it) {
+            // printf("I marked the node at bottom level\n");
+            Find(key, preds, succs);
+            epoch_manager.LeaveEpoch(epoch_node_p);
+            return true;
+          } else if (marked) {
+            epoch_manager.LeaveEpoch(epoch_node_p);
+            return false;
+          }
+        }
+      } else {
+        // Successfully delete the value but the value_chain is not frozen
+        epoch_manager.LeaveEpoch(epoch_node_p);
+        return true;
+      }
     }
-
-    // Try to physically delete the node
-    while (!__sync_bool_compare_and_swap(
-               &(((BaseNode *)prev)->succ),
-               PackSucc((BaseNode *)del_node, UNMARKED),
-               PackSucc((BaseNode *)del_next, UNMARKED))) {
-      prev = SearchNode(del_node, level);
-    }
-    return true;
   }
 
-  /**
-   * To delete the value node in the list
-   */
-  void *DeleteValueNode(LeafNode *leafNode, void *del_node) {
-    // start to cmp swap this.
-    void *findPrev = SearchPrevValueNode(leafNode, (ValueNode *)del_node);
-    // this value already has been deleted by another thread.
-    if (findPrev == NULL) {
-      return NULL;
-    }
-    void *del_next;
+  bool Find(const KeyType &key, std::vector<Node *> &preds,
+            std::vector<Node *> &succs) {
+    EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
+    // printf("Find(%d)\n", key);
+    int bottom_level = 0;
+    bool marked = false;
+    bool snip = false;
+    Node *pred = NULL;
+    Node *curr = NULL;
+    Node *succ = NULL;
+    retry:
     while (true) {
-      del_next = ((BaseNode *)del_node)->Next();
-      // Set mark bit
-      uint64_t cas_ret =
-          __sync_val_compare_and_swap(&(((BaseNode *)del_node)->succ),
-                                      PackSucc((BaseNode *)del_next, UNMARKED),
-                                      PackSucc((BaseNode *)del_next, MARKED));
-
-      if (cas_ret == PackSucc((BaseNode *)del_next, MARKED)) {
-        // Case 1: Another thread has already marked it and is about to delete
-        // it
-        return NULL;
-      } else if (cas_ret == PackSucc((BaseNode *)del_next, UNMARKED)) {
-        // success.
-        break;
+      pred = head;
+      for (int level = MAX_LEVEL; level >= bottom_level; level--) {
+        curr = (Node *)GetNextFromSucc((uint64_t)pred->next[level]);
+        while (true) {
+          // printf("head: %p, tail : %p, curr %p\n", head, tail, curr);
+          succ = (Node *)GetAddressAndMarkBit(curr->next[level], marked);
+          while (marked) {
+            // printf("Find: I see a marked node %p\n", curr->next[level]);
+            snip = __sync_bool_compare_and_swap(&(pred->next[level]),
+                                                PackSucc(curr, UNMARKED),
+                                                PackSucc(succ, UNMARKED));
+            if (!snip)
+              goto retry;
+            if (level == bottom_level) {
+              epoch_manager.AddGarbageNode(curr);
+            }
+            curr = (Node *)GetNextFromSucc((uint64_t)pred->next[level]);
+            succ = (Node *)GetAddressAndMarkBit(curr->next[level], marked);
+          }
+          if (curr != tail && KeyCmpLess(((DataNode *)curr)->key, key)) {
+            pred = curr;
+            curr = succ;
+          } else {
+            break;
+          }
+        }
+        preds[level] = pred;
+        succs[level] = curr;
       }
-      // Case 3: del_node->Next() has changed. A node has been either inserted
-      // or deleted. Reload del_next.
-    }
-    // Try to physically delete the node
-    while (!__sync_bool_compare_and_swap(
-               &(((BaseNode *)findPrev)->succ),
-               PackSucc((BaseNode *)del_node, UNMARKED),
-               PackSucc((BaseNode *)del_next, UNMARKED))) {
-      findPrev = SearchPrevValueNode(leafNode, (ValueNode *)del_node);
-    }
-    return findPrev;
-  }
-
-  void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
-    auto it = Begin(search_key);
-
-    while (!it.IsEnd() && key_eq_obj(it.GetKey(), search_key)) {
-      value_list.push_back(it.GetValue());
-      ++it;
+      epoch_manager.LeaveEpoch(epoch_node_p);
+      if (curr == tail) {
+        return false;
+      } else {
+        return ((DataNode *)curr)->key == key;
+      }
     }
   }
 
@@ -631,606 +667,175 @@ class SkipList {
    * Begin() - Return an iterator pointing to the first element in the list, or
    * an end iterator if the list is empty.
    */
-  ForwardIterator Begin() { return ForwardIterator{this}; }
-
-  /*
-   * Begin() - Return an iterator using a given key
-   *
-   * The iterator returned will point to the first data item whose key is
-   * greater than or equal to the given start key.
-   */
-  ForwardIterator Begin(const KeyType &start_key) {
-    return ForwardIterator{this, start_key};
-  }
+  // ForwardIterator Begin() { return ForwardIterator{this}; }
+  //
+  // /*
+  //  * Begin() - Return an iterator using a given key
+  //  *
+  //  * The iterator returned will point to the first data item whose key is
+  //  * greater than or equal to the given start key.
+  //  */
+  // ForwardIterator Begin(const KeyType &start_key) {
+  //   return ForwardIterator{this, start_key};
+  // }
 
   /*
    * class ForwardIterator - Iterator that supports forward iteration of list
    *                         elements
    */
-  class ForwardIterator {
-   private:
-    LeafNode *lf_node;
-    ValueNode *val_node;
-    SKIPLIST_TYPE *list_p;
-
-   public:
-    /*
-     * Constructor
-     *
-     * The iterator will point to the first element in the list, or become an
-     * end iterator if the list is empty.
-     */
-    ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
-      lf_node = (LeafNode *)list_p->head_nodes[0].Next();
-      val_node = (ValueNode *)lf_node->head->Next();
-      MoveAheadToUndeletedNode();
-    }
-
-    /*
-     * Constructor - Construct an iterator given a key
-     *
-     * The iterator will point to the first data item whose key is greater
-     * than or equal to the given start key, or become an end iterator if the
-     * list is empty.
-     */
-    ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
-        : list_p{p_list_p} {
-      LowerBound(start_key);
-    }
-
-    /*
-     * IsEnd() - Whether the current iterator has reached the end of the list
-     */
-    bool IsEnd() const { return lf_node == nullptr; }
-
-    /*
-     * LowerBound() - Find entry whose key >= start_key
-     */
-    void LowerBound(const KeyType &start_key_p) {
-      lf_node = (LeafNode *)(list_p->Search(start_key_p, 0));
-
-      if (lf_node == nullptr) {
-        // There is no node whose key <= start_key
-        lf_node = (LeafNode *)(list_p->head_nodes[0].Next());
-      } else if (list_p->KeyCmpLess(lf_node->key, start_key_p)) {
-        // There is no node whose key == start_key. Now lf_node is the last
-        // one whose key < start_key.
-        lf_node = (LeafNode *)(lf_node->Next());
-      }
-      if (lf_node != NULL) {
-        val_node = (ValueNode *)(lf_node->head->Next());
-        MoveAheadToUndeletedNode();
-      }
-    }
-
-    /*
-     * GetKey() - Get the key pointed by the iterator
-     *
-     * The caller is responsible for checking whether the iterator has reached
-     * its end. If yes then assertion will fail.
-     */
-    inline const KeyType GetKey() {
-      PL_ASSERT(lf_node);
-      return lf_node->key;
-    }
-
-    /*
-     * GetValue() - Get the value pointed by the iterator
-     *
-     * The caller is responsible for checking whether the iterator has reached
-     * its end. If yes then assertion will fail.
-     */
-    inline const ValueType GetValue() {
-      PL_ASSERT(val_node);
-      return val_node->value;
-    }
-
-    /*
-     * Prefix operator++ - Move the iterator ahead
-     *
-     * The caller is responsible for checking whether the iterator has reached
-     * its end.
-     */
-    inline ForwardIterator &operator++() {
-      MoveAheadByOne();
-      return *this;
-    }
-
-    /*
-     * MoveAheadByOne() - Move the iterator ahead by one
-     *
-     * The caller is responsible for checking whether the iterator has reached
-     * its end. If iterator has reached end then assertion fails.
-     */
-    inline void MoveAheadByOne() {
-      PL_ASSERT(lf_node != nullptr);
-      PL_ASSERT(val_node != nullptr);
-      val_node = (ValueNode *)val_node->Next();
-      MoveAheadToUndeletedNode();
-    }
-
-    /*
-     * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
-     * undeleted node
-     *
-     * If the iterator is currently pointing to an undeleted node, then it
-     * will not be moved. If there is no undeleted node after the iterator,
-     * then it will become an end iterator.
-     */
-    inline void MoveAheadToUndeletedNode() {
-      // reach the end of the list
-      if (lf_node == nullptr) return;
-
-      while (val_node == nullptr) {
-        // val_node == nullptr means we have reached the end of
-        // ValueNode list for the current key. Go on to the next key.
-
-        lf_node = (LeafNode *)lf_node->Next();
-
-        // reach the end of skiplist
-        if (lf_node == nullptr) return;
-
-        val_node = (ValueNode *)lf_node->head->Next();
-      }
-    }
-  };
+  // class ForwardIterator {
+  // private:
+  //   LeafNode *lf_node;
+  //   ValueNode *val_node;
+  //   SKIPLIST_TYPE *list_p;
+  //
+  // public:
+  //   /*
+  //    * Constructor
+  //    *
+  //    * The iterator will point to the first element in the list, or become an
+  //    * end iterator if the list is empty.
+  //    */
+  //   ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
+  //     lf_node = (LeafNode *)list_p->head_nodes[0].Next();
+  //     val_node = (ValueNode *)lf_node->head->Next();
+  //     MoveAheadToUndeletedNode();
+  //   }
+  //
+  //   /*
+  //    * Constructor - Construct an iterator given a key
+  //    *
+  //    * The iterator will point to the first data item whose key is greater
+  //    * than or equal to the given start key, or become an end iterator if the
+  //    * list is empty.
+  //    */
+  //   ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
+  //       : list_p{p_list_p} {
+  //     LowerBound(start_key);
+  //   }
+  //
+  //   /*
+  //    * IsEnd() - Whether the current iterator has reached the end of the list
+  //    */
+  //   bool IsEnd() const { return lf_node == nullptr; }
+  //
+  //   /*
+  //    * LowerBound() - Find entry whose key >= start_key
+  //    */
+  //   void LowerBound(const KeyType &start_key_p) {
+  //     lf_node = (LeafNode *)(list_p->Search(start_key_p, 0));
+  //
+  //     if (lf_node == nullptr) {
+  //       // There is no node whose key <= start_key
+  //       lf_node = (LeafNode *)(list_p->head_nodes[0].Next());
+  //     } else if (list_p->KeyCmpLess(lf_node->key, start_key_p)) {
+  //       // There is no node whose key == start_key. Now lf_node is the last
+  //       // one whose key < start_key.
+  //       lf_node = (LeafNode *)(lf_node->Next());
+  //     }
+  //     if (lf_node != NULL) {
+  //       val_node = (ValueNode *)(lf_node->head->Next());
+  //       MoveAheadToUndeletedNode();
+  //     }
+  //     //
+  //     //      PL_ASSERT(lf_node == nullptr ||
+  //     //                KeyCmpLessEqual(start_key_p, lf_node->key));
+  //   }
+  //
+  //   /*
+  //    * GetKey() - Get the key pointed by the iterator
+  //    *
+  //    * The caller is responsible for checking whether the iterator has
+  //    reached
+  //    * its end. If yes then assertion will fail.
+  //    */
+  //   inline const KeyType GetKey() {
+  //     PL_ASSERT(lf_node);
+  //     return lf_node->key;
+  //   }
+  //
+  //   /*
+  //    * GetValue() - Get the value pointed by the iterator
+  //    *
+  //    * The caller is responsible for checking whether the iterator has
+  //    reached
+  //    * its end. If yes then assertion will fail.
+  //    */
+  //   inline const ValueType GetValue() {
+  //     PL_ASSERT(val_node);
+  //     return val_node->value;
+  //   }
+  //
+  //   /*
+  //    * Prefix operator++ - Move the iterator ahead
+  //    *
+  //    * The caller is responsible for checking whether the iterator has
+  //    reached
+  //    * its end.
+  //    */
+  //   inline ForwardIterator &operator++() {
+  //     MoveAheadByOne();
+  //     return *this;
+  //   }
+  //
+  //   /*
+  //    * MoveAheadByOne() - Move the iterator ahead by one
+  //    *
+  //    * The caller is responsible for checking whether the iterator has
+  //    reached
+  //    * its end. If iterator has reached end then assertion fails.
+  //    */
+  //   inline void MoveAheadByOne() {
+  //     PL_ASSERT(lf_node != nullptr);
+  //     PL_ASSERT(val_node != nullptr);
+  //     val_node = (ValueNode *)val_node->Next();
+  //     MoveAheadToUndeletedNode();
+  //   }
+  //
+  //   /*
+  //    * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
+  //    * undeleted node
+  //    *
+  //    * If the iterator is currently pointing to an undeleted node, then it
+  //    * will not be moved. If there is no undeleted node after the iterator,
+  //    * then it will become an end iterator.
+  //    */
+  //   inline void MoveAheadToUndeletedNode() {
+  //     // reach the end of the list
+  //     if (lf_node == nullptr)
+  //       return;
+  //
+  //     while (val_node == nullptr) {
+  //       // val_node == nullptr means we have reached the end of
+  //       // ValueNode list for the current key. Go on to the next key.
+  //
+  //       lf_node = (LeafNode *)lf_node->Next();
+  //
+  //       // reach the end of skiplist
+  //       if (lf_node == nullptr)
+  //         return;
+  //
+  //       val_node = (ValueNode *)lf_node->head->Next();
+  //     }
+  //   }
+  // };
 
   ///////////////////////////////////////////////////////////////////
   // Utility Funciton
   ///////////////////////////////////////////////////////////////////
-  bool IsEmpty() { return head_nodes[0].Next() == NULL; }
-
   void PrintSkipList() {
-    for (int i = max_level; i > 0; i--) {
-      std::cout << "Level " << i << " :";
-      InnerNode *cur = static_cast<InnerNode *>(head_nodes[i].Next());
-      while (cur != NULL) {
-        std::cout << cur->key << "--->";
-        cur = static_cast<InnerNode *>(cur->Next());
-      }
-      std::cout << std::endl;
+    // printf("head: %p, tail :%p\n", head, tail);
+    Node *ptr = head->next[0];
+    int count = 0;
+    while (ptr != tail) {
+      std::cout << ptr << ": ";
+      ((DataNode *)ptr)->value_chain->PrintValueChain();
+
+      ptr = ptr->next[0];
+      // printf("next: %p\n", ptr);
+      count++;
     }
-    std::cout << "Level " << 0 << " :";
-    LeafNode *cur = static_cast<LeafNode *>(head_nodes[0].Next());
-    while (cur != NULL) {
-      std::cout << "(" << cur->key << ", [";
-      // print value chain
-      ValueNode *ptr = (ValueNode *)(cur->head->Next());
-      while (ptr != NULL) {
-        std::cout << ptr->value << ", ";
-        ptr = (ValueNode *)(ptr->Next());
-      }
-      std::cout << "]) ---> ";
-      cur = static_cast<LeafNode *>(cur->Next());
-    }
-    std::cout << std::endl;
-  }
-
-  /*
-   * PrintSkipList2() - Print skip list to a file
-   */
-  void PrintSkipList2(char *path) {
-    FILE *f = fopen(path, "w");
-    for (int i = max_level; i > 0; i--) {
-      fprintf(f, "Level %d :", i);
-      InnerNode *cur = static_cast<InnerNode *>(head_nodes[i].Next());
-      while (cur != NULL) {
-        fprintf(f, "%d--->", cur->key);
-        cur = static_cast<InnerNode *>(cur->Next());
-      }
-      fprintf(f, "\n");
-    }
-    fprintf(f, "Level 0 :");
-    LeafNode *cur = static_cast<LeafNode *>(head_nodes[0].Next());
-    while (cur != NULL) {
-      fprintf(f, "(%d, [", cur->key);
-      // print value chain
-      ValueNode *ptr = (ValueNode *)(cur->head->Next());
-      while (ptr != NULL) {
-        fprintf(f, "%d, ", ptr->value);
-        ptr = (ValueNode *)(ptr->Next());
-      }
-      fprintf(f, "]) ---> ");
-      cur = static_cast<LeafNode *>(cur->Next());
-    }
-    fprintf(f, "\n");
-  }
-
-  bool StructuralIntegrityCheck() {
-    // Check if max_level is valid
-    std::cout << "Checking max_level ... " << std::flush;
-    if (max_level < 0 || max_level >= MAX_NUM_LEVEL) {
-      std::cout << "Failed" << std::endl;
-      return false;
-    }
-    std::cout << "Correct" << std::endl;
-
-    // Check if it's sorted at each level (strictly increasings)
-    std::cout << "Checking if it's strictly sorted at each level ... "
-              << std::flush;
-    for (int i = 1; i < MAX_NUM_LEVEL; i++) {
-      InnerNode *ptr = (InnerNode *)(head_nodes[i].Next());
-      KeyType prev_key;
-      if (ptr != NULL) {
-        prev_key = ptr->key;
-        ptr = (InnerNode *)(ptr->Next());
-      }
-      while (ptr) {
-        if (!KeyCmpLess(prev_key, ptr->key)) {
-          std::cout << "Failed (" << prev_key << "," << ptr->key << ")"
-                    << std::endl;
-          return false;
-        }
-        prev_key = ptr->key;
-        ptr = (InnerNode *)(ptr->Next());
-      }
-    }
-    LeafNode *ptr = (LeafNode *)(head_nodes[0].Next());
-    KeyType prev_key;
-    if (ptr != NULL) {
-      prev_key = ptr->key;
-      ptr = (LeafNode *)(ptr->Next());
-    }
-    while (ptr) {
-      if (!KeyCmpLess(prev_key, ptr->key)) {
-        std::cout << "Failed (" << prev_key << "," << ptr->key << ")"
-                  << std::endl;
-        return false;
-      }
-      prev_key = ptr->key;
-      ptr = (LeafNode *)(ptr->Next());
-    }
-    std::cout << "Correct" << std::endl;
-
-    // Check if each InnerNode can reach a LeafNode that has the same key value
-    std::cout << "Checking if InnerNode can reach a LeafNode that has the same "
-                 "key value ... " << std::flush;
-    for (int i = 1; i < MAX_NUM_LEVEL; i++) {
-      InnerNode *cur = (InnerNode *)(head_nodes[i].Next());
-      while (cur != NULL) {
-        InnerNode *ptr = cur;
-        for (int j = i; j != 0; j--) {
-          ptr = (InnerNode *)(ptr->down);
-          if (ptr == NULL) {
-            std::cout << "Failed (InnerNode cannot reach a LeafNode)"
-                      << std::endl;
-            return false;
-          }
-        }
-        if (!key_eq_obj(((LeafNode *)ptr)->key, cur->key)) {
-          std::cout << "Failed  (LeafNode has difference key than InnerNode)"
-                    << std::endl;
-          return false;
-        }
-        cur = (InnerNode *)cur->Next();
-      }
-    }
-    std::cout << "Correct" << std::endl;
-
-    // TODO: Check if there's duplicated keys when duplicates are not allowed
-
-    // TODO: Check if there's duplicated (key, value) pair when duplicates are
-    // allowed
-
-    // Check if each leafnode is not deleted
-    std::cout << "Checking if there is no deleted leafnode ... " << std::flush;
-    LeafNode *ptr_6 = (LeafNode *)(head_nodes[0].Next());
-    while (ptr_6 != NULL) {
-      if (ptr_6->head->Next() == NULL) {
-        std::cout << "Failed  (LeafNode that are deleted)" << std::endl;
-        return false;
-      }
-      ptr_6 = (LeafNode *)(ptr_6->Next());
-    }
-    std::cout << "Correct" << std::endl;
-    return true;
-  }
-
-  /* It returns the pointer to the node with the largest key <= @key at
-   * @level. If there are multiple nodes with keys == @key, then it
-   * returns the first node.
-   *
-   * Ex: Search(5, 0) returns a pointer to the first 5
-   *   [level 0]: -> 3 -> 4 -> 4 -> 5 -> 5 -> 6
-   *
-   * Ex: Search(5, 0) returns a pointer to the second 4
-   *   [level 0]: -> 3 -> 4 -> 4 -> 6 -> 6 -> 6
-   *
-   *
-   * IMPORTANT: It ignores delete flags. If this is not what you want,
-   * you might consider using ForwardIterators.
-   *
-   *
-   * It returns a pointer to InnerNode if @level > 0 and a pointer to
-   * LeafNode if @level == 0.
-   *
-   * If the there is no node before the key at that level, it returns NULL.
-   * (NOTE: It will not return a pointer to HeadNode.)
-   *
-   * Ex: Search(5, 0) returns NULL
-   *   [level 0]: -> 6 -> 7 -> 8
-   *
-   * It returns NULL if @level is invalid, meaning @level is not in
-   * [0, MAX_NUM_LEVEL-1].
-   * */
-  BaseNode *Search(const KeyType &key, int level) {
-    // Check if skiplist is empty and valid parameter
-    if (IsEmpty()) return NULL;
-    if (level > max_level || level < 0) return NULL;
-
-    BaseNode *ptr = SearchLower(key, level);
-    if (ptr != NULL) {
-      if (level == 0) {
-        LeafNode *next = (LeafNode *)(((LeafNode *)ptr)->Next());
-        if (next != NULL && key_eq_obj((next)->key, key))
-          return next;
-        else
-          return ptr;
-      } else {
-        InnerNode *next = (InnerNode *)(((InnerNode *)ptr)->Next());
-        if (next != NULL && key_eq_obj(next->key, key))
-          return next;
-        else
-          return ptr;
-      }
-    } else {
-      if (level == 0) {
-        LeafNode *next = (LeafNode *)(head_nodes[level].Next());
-        if (next != NULL && key_eq_obj(next->key, key))
-          return next;
-        else
-          return ptr;
-      } else {
-        InnerNode *next = (InnerNode *)(head_nodes[level].Next());
-        if (next != NULL && key_eq_obj(next->key, key))
-          return next;
-        else
-          return ptr;
-      }
-    }
-  }
-
-  /* It returns the pointer to the node with the largest key strictly < @key
-   * at @level. If there are multiple largest nodes when duplicated keys are
-   * allowed, it returns the last one.
-   *
-   * Ex: SearchLower(5, 0) returns a pointer to the second 4
-   *   3-> 4 -> 4 -> 5 -> 5 -> 6
-   *
-   * IMPORTANT: It ignores delete flags. If this is not what you want,
-   * you might consider using ForwardIterators.
-   *
-   * It returns a pointer to InnerNode if @level > 0 and a pointer to
-   * LeafNode if @level == 0.
-   *
-   * If the there is no node before the key at that level, it returns NULL.
-   * (NOTE: It will not return a pointer to HeadNode.)
-   *
-   * Ex: SearchLower(5, 0) returns NULL
-   *   [level 0]: -> 6 -> 7 -> 8
-   *
-   * It returns NULL if @level is invalid, meaning @level is not in
-   * [0, MAX_NUM_LEVEL-1].
-   */
-  BaseNode *SearchLower(const KeyType &key, int level) {
-    BaseNode *prev;
-    BaseNode *next;
-    SearchLower(key, level, prev, next);
-    return prev;
-  }
-
-  void SearchLower(const KeyType &key, int level, BaseNode *&prev,
-                   BaseNode *&next) {
-    // Check if skiplist is empty
-    if (IsEmpty() || level > max_level || level < 0) {
-      prev = NULL;
-      next = NULL;
-      return;
-    }
-
-    int cur_level = max_level;
-    InnerNode *cur = (InnerNode *)head_nodes[cur_level].Next();
-    prev = NULL;
-    while (1) {
-      if (cur_level == 0) {
-        LeafNode *leaf_cur = (LeafNode *)cur;
-        while (leaf_cur != NULL && KeyCmpLess(leaf_cur->key, key)) {
-          prev = leaf_cur;
-          leaf_cur = (LeafNode *)(leaf_cur->Next());
-        }
-      } else {
-        // find cur s.t. cur->key >= key
-        while (cur != NULL && KeyCmpLess(cur->key, key)) {
-          if (cur->down->GetMarkBit()) {
-            // The node below "prev" has been physically deleted from the list.
-            // We should delete "prev" too.
-            DeleteLevelNode(cur, cur_level);
-          } else {
-            prev = cur;
-          }
-
-          cur = (InnerNode *)(cur->Next());
-        }
-      }
-
-      if (cur_level == level) {
-        next = cur;
-        return;
-      }
-
-      if (cur_level == 0) {
-        prev = NULL;
-        cur = NULL;
-        return;
-      }
-      cur_level--;
-      PL_ASSERT(cur_level >= 0);
-      if (prev == NULL) {
-        cur = (InnerNode *)head_nodes[cur_level].Next();
-      } else {
-        cur = (InnerNode *)(((InnerNode *)prev)->down);
-        prev = NULL;
-      }
-    }
-  }
-
-  /*****
-   * We want to find a node in a certain level.
-   * The method returns the previous node pointing to this node.
-   **/
-  void *SearchNode(const void *node, const int level) {
-    void *prev = NULL;
-    KeyType key;
-    if (level == 0) {
-      key = ((LeafNode *)node)->key;
-    } else {
-      key = ((InnerNode *)node)->key;
-    }
-    // find the node with key < key at level.
-    prev = SearchLower(key, level);
-    // we still want to search from start to avoid false positive.
-    void *curr_node;
-    if (prev == NULL) {
-      prev = &head_nodes[level];
-      curr_node = head_nodes[level].Next();
-    } else {
-      curr_node = ((BaseNode *)prev)->Next();
-    }
-
-    // start to find the node.
-    while (curr_node != NULL) {
-      // if the current node's key already greater than the key we want.
-      // can't find the node.
-      if (level == 0) {
-        if (KeyCmpGreater(((LeafNode *)curr_node)->key, key)) {
-          prev = NULL;
-          break;
-        }
-      } else {
-        if (KeyCmpGreater(((InnerNode *)curr_node)->key, key)) {
-          prev = NULL;
-          break;
-        }
-      }
-      if (curr_node == node) {
-        return prev;
-      }
-      // move to next one.
-      prev = curr_node;
-      curr_node = ((BaseNode *)curr_node)->Next();
-    }
-    return NULL;
-  }
-
-  /***
-   * This function wants to find the ValueNode to Delete.
-   * return NULL.
-   * if prev_node is true, then it means that it wants to find the
-   * previous node pointing to the value node.
-   */
-  ValueNode *SearchValueNode(const LeafNode *leafNode, const ValueType &value) {
-    ValueNode *prev = leafNode->head;
-    ValueNode *curr = (ValueNode *)(prev->Next());
-    while (curr != NULL) {
-      // if we found the valueNode.
-      if (ValueCmpEqual(curr->value, value)) {
-        return curr;
-      }
-      // move to next one.
-      prev = curr;
-      curr = (ValueNode *)curr->Next();
-    }
-    return NULL;
-  }
-
-  ValueNode *SearchPrevValueNode(const LeafNode *leafNode, ValueNode *node) {
-    ValueNode *prev = leafNode->head;
-    ValueNode *curr = (ValueNode *)(prev->Next());
-    while (curr != NULL) {
-      // if we found the valueNode.
-      if (curr == node) {
-        return prev;
-      }
-      // move to next one.
-      prev = curr;
-      curr = (ValueNode *)curr->Next();
-    }
-    return NULL;
-  }
-
-  /***
-   * Find the leaf node given the start node
-   */
-  void *FindLeafNode(BaseNode *start_node, int level) {
-    BaseNode *leaf_node = start_node;
-    for (int i = level; i >= 1; i--) {
-      // This inner node has already been deleted
-      if (start_node->GetMarkBit()) {
-        return NULL;
-      }
-      leaf_node = ((InnerNode *)leaf_node)->down;
-    }
-    PL_ASSERT(leaf_node->type == NodeType::LeafNode);
-    return leaf_node;
-  }
-
- public:
-  // Constructor
-  SkipList(bool p_duplicated_key = false,
-           KeyComparator p_key_cmp_obj = KeyComparator{},
-           KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
-           ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
-      : duplicated_key(p_duplicated_key),
-        key_cmp_obj(p_key_cmp_obj),
-        key_eq_obj(p_key_eq_obj),
-        value_eq_obj(p_value_eq_obj),
-
-        epoch_manager(this) {
-    LOG_TRACE(
-        "SkipList Constructor called. "
-        "Setting up execution environment...");
-
-    size_of_inner_node = (sizeof(InnerNode));
-    size_of_leaf_node = (sizeof(LeafNode));
-    size_of_value_node = (sizeof(ValueNode));
-    LOG_TRACE("size of nodes: Inner %d, Leaf %d, Value %d", size_of_inner_node,
-              size_of_leaf_node, size_of_value_node);
-
-    for (int i = 0; i < MAX_NUM_LEVEL; i++) head_nodes[i] = HeadNode();
-
-    LOG_TRACE("Starting epoch manager thread...");
-    // epoch_manager.StartThread();
-  };
-
-  // Destructor
-  ~SkipList() {
-    // Free alive nodes
-    for (unsigned i = 1; i < MAX_NUM_LEVEL; i++) {
-      InnerNode *cur = (InnerNode *)head_nodes[i].Next();
-      InnerNode *prev = NULL;
-      while (cur != NULL) {
-        prev = cur;
-        cur = (InnerNode *)(cur->Next());
-        delete prev;
-      }
-    }
-    LeafNode *cur = (LeafNode *)head_nodes[0].Next();
-    LeafNode *prev = NULL;
-    while (cur != NULL) {
-      prev = cur;
-      cur = (LeafNode *)(cur->Next());
-      // free value chain
-      ValueNode *val_cur = prev->head;
-      ValueNode *val_prev = NULL;
-      while (val_cur != NULL) {
-        val_prev = val_cur;
-        val_cur = (ValueNode *)(val_cur->Next());
-        delete val_prev;
-      }
-      delete prev;
-    }
-
-    // TODO: Free dead nodes, i.e., nodes are in the memory pool.
+    printf("Total: %d\n", count);
   }
 
  public:
@@ -1243,8 +848,6 @@ class SkipList {
 
   const ValueEqualityChecker value_eq_obj;
 
-  HeadNode head_nodes[MAX_NUM_LEVEL];
-
   // max_level falls in [0, MAX_NUM_LEVEL]
   int max_level = 0;
 
@@ -1253,11 +856,11 @@ class SkipList {
 
   EpochManager epoch_manager;
 
-  size_t size_of_inner_node;
-
-  size_t size_of_leaf_node;
-
   size_t size_of_value_node;
+
+  size_t size_of_node;
+
+  size_t size_of_data_node;
 
   size_t memory_used = 0;
 
@@ -1488,7 +1091,7 @@ class SkipList {
         } else {
           LOG_TRACE("Add garbage node CAS failed. Retry");
         }
-      }  // while 1
+      } // while 1
 
       return;
     }
@@ -1504,7 +1107,7 @@ class SkipList {
      * to prevent this function using an epoch currently being recycled
      */
     inline EpochNode *JoinEpoch() {
-    try_join_again:
+      try_join_again:
       // We must make sure the epoch we join and the epoch we
       // return are the same one because the current point
       // could change in the middle of this function
@@ -1568,25 +1171,23 @@ class SkipList {
           freed_size = skiplist_p->size_of_value_node;
           break;
         }
-        case NodeType::LeafNode: {
+        case NodeType::Node: {
           // need to remove dummy value node
-          delete (((LeafNode *)node_p)->head);
-          delete (LeafNode *)(node_p);
-          freed_size =
-              skiplist_p->size_of_value_node + skiplist_p->size_of_leaf_node;
+          delete (Node *)(node_p);
+          freed_size = skiplist_p->size_of_node;
           break;
         }
-        case NodeType::InnerNode: {
-          delete (InnerNode *)(node_p);
-          freed_size = skiplist_p->size_of_inner_node;
+        case NodeType::DataNode: {
+          delete ((DataNode *)(node_p));
+          freed_size = skiplist_p->size_of_data_node;
           break;
         }
         default:
-          LOG_DEBUG("We never delete other types of nodes");
+        LOG_DEBUG("We never delete other types of nodes");
           break;
       }
-    // Update memory used
-    update_memory:
+      // Update memory used
+      update_memory:
       size_t cur_memory_used = skiplist_p->memory_used;
       while (!__sync_bool_compare_and_swap(&skiplist_p->memory_used,
                                            cur_memory_used,
@@ -1635,9 +1236,8 @@ class SkipList {
         // since last epoch counter testing.
 
         if (head_epoch_p->active_thread_count.fetch_sub(MAX_THREAD_COUNT) > 0) {
-          LOG_TRACE(
-              "Some thread sneaks in after we have decided"
-              " to clean. Return");
+          LOG_TRACE("Some thread sneaks in after we have decided"
+                        " to clean. Return");
 
           // Must add it back to let the next round of cleaning correctly
           // identify empty epoch
@@ -1657,7 +1257,7 @@ class SkipList {
 
         // Walk through its garbage chain
         for (const GarbageNode *garbage_node_p =
-                 head_epoch_p->garbage_list_p.load();
+            head_epoch_p->garbage_list_p.load();
              garbage_node_p != nullptr; garbage_node_p = next_garbage_node_p) {
           FreeNode(garbage_node_p->node_p);
 
@@ -1668,7 +1268,7 @@ class SkipList {
           // This invalidates any further reference to its
           // members (so we saved next pointer above)
           delete garbage_node_p;
-        }  // for
+        } // for
 
         // First need to save this in order to delete current node
         // safely
@@ -1682,7 +1282,7 @@ class SkipList {
         // cause any problem since that case we also set current epoch
         // pointer to nullptr
         head_epoch_p = next_epoch_node_p;
-      }  // while(1) through epoch nodes
+      } // while(1) through epoch nodes
 
       return;
     }
@@ -1723,7 +1323,7 @@ class SkipList {
       return;
     }
 
-  };  // Epoch manager
+  }; // Epoch manager
 
  private:
   // Used for finding the least significant bit
@@ -1732,5 +1332,5 @@ class SkipList {
       31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
 };
 
-}  // namespace index
-}  // namespace peloton
+} // namespace index
+} // namespace peloton
