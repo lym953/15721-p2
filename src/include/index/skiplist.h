@@ -97,7 +97,7 @@ class SkipList {
     }
 
     LOG_TRACE("Starting epoch manager thread...");
-    epoch_manager.StartThread();
+    // epoch_manager.StartThread();
   };
 
   // Destructor
@@ -1212,8 +1212,9 @@ class SkipList {
      * its own GC thread using the loop
      */
     void PerformGarbageCollection() {
-      ClearEpoch();
       CreateNewEpoch();
+      ClearEpoch();
+
       return;
     }
 
