@@ -85,6 +85,7 @@ class SkipList {
     size_of_node = (sizeof(Node));
     size_of_value_node = (sizeof(ValueNode));
     size_of_data_node = (sizeof(DataNode));
+    size_of_value_chain = (sizeof(ValueChain));
 
     LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu",
               size_of_value_node, size_of_value_node, size_of_data_node);
@@ -188,6 +189,16 @@ class SkipList {
       this->list = list;
       this->key = key;
       value_chain = new ValueChain(list, key, value);
+
+    // Update memory used
+    update_memory:
+      size_t cur_memory_used = list->memory_used;
+      while (!__sync_bool_compare_and_swap(
+                 &(list->memory_used), cur_memory_used,
+                 cur_memory_used + list->size_of_value_chain)) {
+        goto update_memory;
+      }
+
       Node::next.resize(height + 1);
       for (size_t i = 0; i < Node::next.size(); i++) {
         Node::next[i] = NULL;
@@ -227,6 +238,17 @@ class SkipList {
       head = new ValueNode(value);
       tail = new ValueNode(value);
       ValueNode *first_value = new ValueNode(value);
+
+      size_t memory_claimed = 3 * list->size_of_value_node;
+    // Update memory used
+    update_memory:
+      size_t cur_memory_used = list->memory_used;
+      while (!__sync_bool_compare_and_swap(&(list->memory_used),
+                                           cur_memory_used,
+                                           cur_memory_used + memory_claimed)) {
+        goto update_memory;
+      }
+
       head->succ = PackSucc(first_value, UNMARKED);
       first_value->succ = PackSucc(tail, UNMARKED);
     }
@@ -277,6 +299,16 @@ class SkipList {
         } else {
           // printf("adding %d\n", value);
           ValueNode *node = new ValueNode(value);
+
+        // Update memory used
+        update_memory:
+          size_t cur_memory_used = list->memory_used;
+          while (!__sync_bool_compare_and_swap(
+                     &(list->memory_used), cur_memory_used,
+                     cur_memory_used + list->size_of_value_node)) {
+            goto update_memory;
+          }
+
           node->succ = PackSucc(curr, UNMARKED);
           if (__sync_bool_compare_and_swap(&(pred->succ),
                                            PackSucc(curr, UNMARKED),
@@ -510,6 +542,16 @@ class SkipList {
       } else {
         // printf("We did not find the key\n");
         DataNode *new_node = new DataNode(this, key, value, top_level);
+
+      // Update memory used
+      update_memory:
+        size_t cur_memory_used = memory_used;
+        while (!__sync_bool_compare_and_swap(
+                   &memory_used, cur_memory_used,
+                   cur_memory_used + size_of_data_node)) {
+          goto update_memory;
+        }
+
         for (int level = bottom_level; level <= top_level; level++) {
           Node *succ = succs[level];
           new_node->next[level] = (Node *)PackSucc(succ, UNMARKED);
@@ -884,6 +926,8 @@ class SkipList {
   size_t size_of_node;
 
   size_t size_of_data_node;
+
+  size_t size_of_value_chain;
 
   size_t memory_used = 0;
 
