@@ -1022,6 +1022,63 @@ class SkipList {
     printf("Total: %d\n", count);
   }
 
+  /**
+   * This function checks whether the skiplist property is properly maintained.
+   * However, since our implementation of skiplist doesn't require that each
+   * list is a sublist of the list at levels below it during execution,
+   * we only need to check the bottom level. The function should only be called
+   * when no other index operations are running at the same.
+   */
+  bool StructureIntegrityCheck() {
+    Node *ptr = head->next[0];
+    KeyType prev_key;
+    while (ptr != tail) {
+      // Check if marked
+      uint64_t marked;
+      Node *succ;
+      succ = (Node *)GetAddressAndMarkBit(ptr->next[0], marked);
+      if (marked) return false;
+
+      // Check if key are ordered.
+      if (ptr != head->next[0] &&
+          !KeyCmpGreater(((DataNode *)ptr)->key, prev_key))
+        return false;
+
+      prev_key = ((DataNode *)ptr)->key;
+
+      // Check ValueChain
+      ValueChain *chain = ((DataNode *)ptr)->value_chain;
+
+      // Check if the ValueChain is Frozen()
+      if (((DataNode *)ptr)->value_chain->IsFrozen()) return false;
+
+      // Check if the ValueChain contains the same key as the Node
+      if (!key_eq_obj(prev_key, chain->key)) return false;
+
+      if (!duplicated_key) {
+        // Check if the chain has more than 1 value;
+        ValueNode *first_value = (ValueNode *)chain->head->Next();
+        if (first_value->Next() != tail) return false;
+      } else {
+        // Check if contains duplicated values
+        std::vector<ValueNode *> val_vector;
+
+        ValueNode *val_ptr = (ValueNode *)chain->head->Next();
+        while (val_ptr != chain->tail) {
+          for (size_t i = 0; i < val_vector.size(); i++) {
+            if (value_eq_obj(val_vector[i]->value, val_ptr->value))
+              return false;
+          }
+          val_vector.push_back(val_ptr);
+          val_ptr = (ValueNode *)val_ptr->Next();
+        }
+      }
+
+      ptr = ptr->next[0];
+    }
+    return true;
+  }
+
  public:
   const bool duplicated_key;
   // Key comparator
