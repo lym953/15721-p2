@@ -97,7 +97,7 @@ class SkipList {
     }
 
     LOG_TRACE("Starting epoch manager thread...");
-    // epoch_manager.StartThread();
+    epoch_manager.StartThread();
   };
 
   // Destructor
@@ -496,7 +496,6 @@ class SkipList {
 
   bool Insert(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-    // printf("Insert(%d, %d)\n", key, value);
     int v = rand();
     int top_level =
         MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
@@ -508,10 +507,7 @@ class SkipList {
     retry:
       bool temp = Find(key, preds, succs);
       bool found = temp;
-      // PrintVector(preds);
-      // PrintVector(succs);
       if (found) {
-        // printf("We found the key\n");
         if (!duplicated_key) {
           if (!((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
             epoch_manager.LeaveEpoch(epoch_node_p);
@@ -540,7 +536,6 @@ class SkipList {
           }
         }
       } else {
-        // printf("We did not find the key\n");
         DataNode *new_node = new DataNode(this, key, value, top_level);
 
       // Update memory used
@@ -559,16 +554,12 @@ class SkipList {
         Node *pred = preds[bottom_level];
         Node *succ = succs[bottom_level];
         new_node->next[bottom_level] = (Node *)PackSucc(succ, UNMARKED);
-        // printf("new node next pointer\n");
-        // PrintVector(new_node->next);
         if (!__sync_bool_compare_and_swap(&(pred->next[bottom_level]),
                                           PackSucc(succ, UNMARKED),
                                           PackSucc(new_node, UNMARKED))) {
-          // printf("We failed chage pointers at level %d\n", 0);
           epoch_manager.AddGarbageNode(new_node);
           continue;
         }
-        // printf("We insert node(%d) level %d\n", key, 0);
         for (int level = bottom_level + 1; level <= top_level; level++) {
           while (true) {
             pred = preds[level];
@@ -588,7 +579,6 @@ class SkipList {
 
   bool Delete(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-    // printf("Delete(%d, %d)\n", key, value);
     int bottom_level = 0;
     std::vector<Node *> preds(MAX_LEVEL + 1);
     std::vector<Node *> succs(MAX_LEVEL + 1);
@@ -607,7 +597,6 @@ class SkipList {
         return false;
       } else if (((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
         // After you delete the value, the value_chain is frozen
-        // printf("the chain is forzen, need to delete the node\n");
         Node *node_to_remove = succs[bottom_level];
         for (int level = node_to_remove->top_level; level >= bottom_level + 1;
              level--) {
@@ -631,7 +620,6 @@ class SkipList {
           succ = (Node *)GetAddressAndMarkBit(
               node_to_remove->next[bottom_level], marked);
           if (i_marked_it) {
-            // printf("I marked the node at bottom level\n");
             Find(key, preds, succs);
             epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
@@ -1226,7 +1214,6 @@ class SkipList {
     void PerformGarbageCollection() {
       ClearEpoch();
       CreateNewEpoch();
-
       return;
     }
 
@@ -1366,8 +1353,7 @@ class SkipList {
       // since even if we missed one we could always
       // hit the correct value on next try
       while (exited_flag.load() == false) {
-        // printf("Start new epoch cycle");
-        PerformGarbageCollection();
+        CreateNewEpoch();
 
         // Sleep for 50 ms
         std::chrono::milliseconds duration(GC_INTERVAL);
