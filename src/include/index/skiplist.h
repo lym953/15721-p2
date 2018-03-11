@@ -47,6 +47,32 @@ namespace index {
 // no thread sneaking in while GC decision is being made
 #define MAX_THREAD_COUNT ((int)0x7FFFFFFF)
 
+/***
+ * class SkipList - Lock-free SkipList Index Implementation
+ *
+ * Template Arguments:
+ *
+ * template <typename KeyType,
+ *           typename ValueType,
+ *           typename KeyComparator = std::less<KeyType>,
+ *           typename KeyEqualityChecker = std::equal_to<KeyType>,
+ *           typename ValueEqualityChecker = std::equal_to<ValueType>,
+ *
+ * Properties:
+ * 1. We use a Node to represent a tower in skiplist. A Node is the smallest
+ *unit in our implementation. Therefore, a Node represents the same key in
+ *multiple levels. Pointers between Nodes in different levels are managed by an
+ *array of pointers in Node class.
+ *
+ * 2. It doesn't maintain the property that each list is a sublist of the list
+ *at levels below it. For example, a node might end up in the list at levels 0
+ *and 2, but not at level 1. The abstract set of keys we store is defined by the
+ *bottom-level list: a key is in the set if there is a unmarked node with that
+ *key in the bottom-level list. Nodes in higher-level lists in the skiplist
+ *serve only as shortcuts to the bottom level.
+ *
+ */
+
 template <typename KeyType, typename ValueType, typename KeyComparator,
           typename KeyEqualityChecker, typename ValueEqualityChecker>
 class SkipList {
