@@ -241,7 +241,8 @@ class SkipList {
    *
    * 2. Once a ValueChain becomes empty, it's frozen. A frozen ValueChain is not
    *allowed to add more values. Therefore, it doesn't have a default
-   *constructor. To construct a ValueChain, you must provide an initial value.
+   *constructor. To construct a ValueChain, you must provide a key and an
+   *initial value.
    *
    */
   class ValueChain {
@@ -864,6 +865,7 @@ class SkipList {
     Node *node = NULL;
     ValueNode *val_node = NULL;
     SKIPLIST_TYPE *list_p;
+    SkipList::EpochNode *epoch_p = NULL;
 
    public:
     /*
@@ -873,6 +875,7 @@ class SkipList {
      * end iterator if the list is empty.
      */
     ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
+      epoch_p = list_p->epoch_manager.JoinEpoch();
       node = list_p->head->next[0];
       if (!IsEnd()) {
         val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
@@ -889,9 +892,11 @@ class SkipList {
      */
     ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
         : list_p{p_list_p} {
+      epoch_p = list_p->epoch_manager.JoinEpoch();
       LowerBound(start_key);
     }
 
+    ~ForwardIterator() { list_p->epoch_manager.LeaveEpoch(epoch_p); }
     /*
      * IsEnd() - Whether the current iterator has reached the end of the list
      */
