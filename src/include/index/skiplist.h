@@ -656,6 +656,15 @@ class SkipList {
     }
   }
 
+  void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
+    auto it = Begin(search_key);
+
+    while (!it.IsEnd() && key_eq_obj(it.GetKey(), search_key)) {
+      value_list.push_back(it.GetValue());
+      ++it;
+    }
+  }
+
   ///////////////////////////////////////////////////////////////////
   // Garbage Collection
   ///////////////////////////////////////////////////////////////////
