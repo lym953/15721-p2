@@ -351,7 +351,7 @@ class SkipList {
       ValueNode *pred = NULL;
       ValueNode *curr = NULL;
       ValueNode *succ = NULL;
-      bool marked = false;
+      uint64_t marked;
       bool snip;
     retry:
       while (true) {
@@ -454,9 +454,9 @@ class SkipList {
                                         PackSucc(expected, MARKED));
   }
 
-  static void *GetAddressAndMarkBit(void *address, bool &marked) {
-    marked = GetMarkBitFromSucc((uint64_t)address);
-    return GetNextFromSucc((uint64_t)address);
+  static void *GetAddressAndMarkBit(void *address, uint64_t &marked) {
+    marked = (uint64_t)address & 0b1;
+    return (void *)((uint64_t)address & ~0b1);
   }
 
   /*
@@ -591,7 +591,7 @@ class SkipList {
         Node *node_to_remove = succs[bottom_level];
         for (int level = node_to_remove->top_level; level >= bottom_level + 1;
              level--) {
-          bool marked = false;
+          uint64_t marked;
           succ =
               (Node *)GetAddressAndMarkBit(node_to_remove->next[level], marked);
           while (!marked) {
@@ -601,7 +601,7 @@ class SkipList {
                                                 marked);
           }
         }
-        bool marked = false;
+        uint64_t marked;
         succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[bottom_level],
                                             marked);
         while (true) {
@@ -632,7 +632,7 @@ class SkipList {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
     // printf("Find(%d)\n", key);
     int bottom_level = 0;
-    bool marked = false;
+    uint64_t marked;
     bool snip = false;
     Node *pred = NULL;
     Node *curr = NULL;
