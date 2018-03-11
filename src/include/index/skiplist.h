@@ -28,12 +28,12 @@ namespace index {
 /*
  * SKIPLIST_TEMPLATE_ARGUMENTS - Save some key strokes
  */
-#define SKIPLIST_TEMPLATE_ARGUMENTS                                            \
-  template <typename KeyType, typename ValueType, typename KeyComparator,      \
+#define SKIPLIST_TEMPLATE_ARGUMENTS                                       \
+  template <typename KeyType, typename ValueType, typename KeyComparator, \
             typename KeyEqualityChecker, typename ValueEqualityChecker>
 
-#define SKIPLIST_TYPE                                                          \
-  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker,              \
+#define SKIPLIST_TYPE                                             \
+  SkipList<KeyType, ValueType, KeyComparator, KeyEqualityChecker, \
            ValueEqualityChecker>
 
 #define MAX_LEVEL 31
@@ -50,7 +50,7 @@ namespace index {
 #define MAX_THREAD_COUNT ((int)0x7FFFFFFF)
 
 template <typename KeyType, typename ValueType, typename KeyComparator,
-    typename KeyEqualityChecker, typename ValueEqualityChecker>
+          typename KeyEqualityChecker, typename ValueEqualityChecker>
 class SkipList {
   // Public Classes Declarations
  public:
@@ -72,19 +72,22 @@ class SkipList {
            KeyComparator p_key_cmp_obj = KeyComparator{},
            KeyEqualityChecker p_key_eq_obj = KeyEqualityChecker{},
            ValueEqualityChecker p_value_eq_obj = ValueEqualityChecker{})
-      : duplicated_key(p_duplicated_key), key_cmp_obj(p_key_cmp_obj),
-        key_eq_obj(p_key_eq_obj), value_eq_obj(p_value_eq_obj),
+      : duplicated_key(p_duplicated_key),
+        key_cmp_obj(p_key_cmp_obj),
+        key_eq_obj(p_key_eq_obj),
+        value_eq_obj(p_value_eq_obj),
 
         epoch_manager(this) {
-    LOG_TRACE("SkipList Constructor called. "
-                  "Setting up execution environment...");
+    LOG_TRACE(
+        "SkipList Constructor called. "
+        "Setting up execution environment...");
 
     size_of_node = (sizeof(Node));
     size_of_value_node = (sizeof(ValueNode));
     size_of_data_node = (sizeof(DataNode));
 
-    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu", size_of_value_node,
-              size_of_value_node, size_of_data_node);
+    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu",
+              size_of_value_node, size_of_value_node, size_of_data_node);
 
     head = new Node();
     tail = new Node();
@@ -93,7 +96,7 @@ class SkipList {
     }
 
     LOG_TRACE("Starting epoch manager thread...");
-    //epoch_manager.StartThread();
+    // epoch_manager.StartThread();
   };
 
   // Destructor
@@ -109,8 +112,8 @@ class SkipList {
         delete (DataNode *)temp;
       }
     }
-    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu", size_of_value_node,
-              size_of_value_node, size_of_data_node);
+    LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu",
+              size_of_value_node, size_of_value_node, size_of_data_node);
 
     // TODO: Free dead nodes, i.e., nodes are in the memory pool.
   }
@@ -280,7 +283,7 @@ class SkipList {
                                            PackSucc(node, UNMARKED))) {
             list->epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
-          }else{
+          } else {
             list->epoch_manager.AddGarbageNode(node);
           }
         }
@@ -300,8 +303,7 @@ class SkipList {
         } else {
           ValueNode *succ = (ValueNode *)curr->Next();
           snip = AttempMark(curr, succ);
-          if (!snip)
-            continue;
+          if (!snip) continue;
           if (__sync_bool_compare_and_swap(&(pred->succ),
                                            PackSucc(curr, UNMARKED),
                                            PackSucc(succ, UNMARKED))) {
@@ -321,7 +323,7 @@ class SkipList {
       ValueNode *succ = NULL;
       bool marked = false;
       bool snip;
-      retry:
+    retry:
       while (true) {
         pred = head;
         PL_ASSERT(pred);
@@ -333,8 +335,7 @@ class SkipList {
             snip = __sync_bool_compare_and_swap(&(pred->succ),
                                                 PackSucc(curr, UNMARKED),
                                                 PackSucc(succ, UNMARKED));
-            if (!snip)
-              goto retry;
+            if (!snip) goto retry;
             list->epoch_manager.AddGarbageNode(curr);
             curr = succ;
             succ =
@@ -397,7 +398,7 @@ class SkipList {
   inline bool KeyValueCmpEqual(const KeyValuePair &kvp1,
                                const KeyValuePair &kvp2) const {
     return (key_eq_obj(kvp1.first, kvp2.first) &&
-        value_eq_obj(kvp1.second, kvp2.second));
+            value_eq_obj(kvp1.second, kvp2.second));
   }
 
   /**
@@ -472,7 +473,7 @@ class SkipList {
     std::vector<Node *> succs(MAX_LEVEL + 1);
 
     while (true) {
-      retry:
+    retry:
       bool temp = Find(key, preds, succs);
       bool found = temp;
       // PrintVector(preds);
@@ -615,7 +616,7 @@ class SkipList {
     Node *pred = NULL;
     Node *curr = NULL;
     Node *succ = NULL;
-    retry:
+  retry:
     while (true) {
       pred = head;
       for (int level = MAX_LEVEL; level >= bottom_level; level--) {
@@ -628,8 +629,7 @@ class SkipList {
             snip = __sync_bool_compare_and_swap(&(pred->next[level]),
                                                 PackSucc(curr, UNMARKED),
                                                 PackSucc(succ, UNMARKED));
-            if (!snip)
-              goto retry;
+            if (!snip) goto retry;
             if (level == bottom_level) {
               epoch_manager.AddGarbageNode(curr);
             }
@@ -1094,7 +1094,7 @@ class SkipList {
         } else {
           LOG_TRACE("Add garbage node CAS failed. Retry");
         }
-      } // while 1
+      }  // while 1
 
       return;
     }
@@ -1110,7 +1110,7 @@ class SkipList {
      * to prevent this function using an epoch currently being recycled
      */
     inline EpochNode *JoinEpoch() {
-      try_join_again:
+    try_join_again:
       // We must make sure the epoch we join and the epoch we
       // return are the same one because the current point
       // could change in the middle of this function
@@ -1186,11 +1186,11 @@ class SkipList {
           break;
         }
         default:
-        LOG_DEBUG("We never delete other types of nodes");
+          LOG_DEBUG("We never delete other types of nodes");
           break;
       }
-      // Update memory used
-      update_memory:
+    // Update memory used
+    update_memory:
       size_t cur_memory_used = skiplist_p->memory_used;
       while (!__sync_bool_compare_and_swap(&skiplist_p->memory_used,
                                            cur_memory_used,
@@ -1239,8 +1239,9 @@ class SkipList {
         // since last epoch counter testing.
 
         if (head_epoch_p->active_thread_count.fetch_sub(MAX_THREAD_COUNT) > 0) {
-          LOG_TRACE("Some thread sneaks in after we have decided"
-                        " to clean. Return");
+          LOG_TRACE(
+              "Some thread sneaks in after we have decided"
+              " to clean. Return");
 
           // Must add it back to let the next round of cleaning correctly
           // identify empty epoch
@@ -1260,7 +1261,7 @@ class SkipList {
 
         // Walk through its garbage chain
         for (const GarbageNode *garbage_node_p =
-            head_epoch_p->garbage_list_p.load();
+                 head_epoch_p->garbage_list_p.load();
              garbage_node_p != nullptr; garbage_node_p = next_garbage_node_p) {
           FreeNode(garbage_node_p->node_p);
 
@@ -1271,7 +1272,7 @@ class SkipList {
           // This invalidates any further reference to its
           // members (so we saved next pointer above)
           delete garbage_node_p;
-        } // for
+        }  // for
 
         // First need to save this in order to delete current node
         // safely
@@ -1285,7 +1286,7 @@ class SkipList {
         // cause any problem since that case we also set current epoch
         // pointer to nullptr
         head_epoch_p = next_epoch_node_p;
-      } // while(1) through epoch nodes
+      }  // while(1) through epoch nodes
 
       return;
     }
@@ -1326,7 +1327,7 @@ class SkipList {
       return;
     }
 
-  }; // Epoch manager
+  };  // Epoch manager
 
  private:
   // Used for finding the least significant bit
@@ -1335,5 +1336,5 @@ class SkipList {
       31, 27, 13, 23, 21, 19, 16, 7, 26, 12, 18, 6,  11, 5,  10, 9};
 };
 
-} // namespace index
-} // namespace peloton
+}  // namespace index
+}  // namespace peloton
