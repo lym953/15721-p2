@@ -449,12 +449,12 @@ class SkipList {
     return succ & 0b1;
   }
 
-  static bool AttempMark(Node *&address, Node *expected) {
+  inline static bool AttempMark(Node *&address, Node *expected) {
     return __sync_bool_compare_and_swap(&address, PackSucc(expected, UNMARKED),
                                         PackSucc(expected, MARKED));
   }
 
-  static void *GetAddressAndMarkBit(void *address, uint64_t &marked) {
+  inline static void *GetAddressAndMarkBit(void *address, uint64_t &marked) {
     marked = (uint64_t)address & 0b1;
     return (void *)((uint64_t)address & ~0b1);
   }
