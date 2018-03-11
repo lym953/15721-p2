@@ -270,7 +270,7 @@ class SkipList {
       }
     }
 
-    bool AttempMark(BaseNode *curr, BaseNode *succ) {
+    bool AttemptMark(BaseNode *curr, BaseNode *succ) {
       return __sync_bool_compare_and_swap(
           &(curr->succ), PackSucc(succ, UNMARKED), PackSucc(succ, MARKED));
     }
@@ -358,7 +358,7 @@ class SkipList {
           ValueNode *succ = (ValueNode *)curr->Next();
           // Try to marked the node as logically deleted. Once we succeed, we
           // are essentially done.
-          snip = AttempMark(curr, succ);
+          snip = AttemptMark(curr, succ);
           if (!snip) continue;
 
           // Attempt physical deletion. It doesn't matter if it fails because
@@ -510,7 +510,7 @@ class SkipList {
   /**
    * Attempt to mark the given address.
    */
-  inline static bool AttempMark(Node *&address, Node *expected) {
+  inline static bool AttemptMark(Node *&address, Node *expected) {
     return __sync_bool_compare_and_swap(&address, PackSucc(expected, UNMARKED),
                                         PackSucc(expected, MARKED));
   }
@@ -679,7 +679,7 @@ class SkipList {
           succ =
               (Node *)GetAddressAndMarkBit(node_to_remove->next[level], marked);
           while (!marked) {
-            AttempMark(node_to_remove->next[level], succ);
+            AttemptMark(node_to_remove->next[level], succ);
             succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[level],
                                                 marked);
           }
