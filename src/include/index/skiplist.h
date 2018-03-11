@@ -405,6 +405,7 @@ class SkipList {
         while (true) {
           succ = (ValueNode *)GetAddressAndMarkBit((void *)curr->succ, marked);
           while (marked) {
+            // Found a marked ValueNode. Try to physically remove it.
             snip = __sync_bool_compare_and_swap(&(pred->succ),
                                                 PackSucc(curr, UNMARKED),
                                                 PackSucc(succ, UNMARKED));
