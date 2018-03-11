@@ -166,9 +166,6 @@ class SkipList {
     // Constructor for sentinel nodes
     Node() {
       next.resize(MAX_LEVEL + 1);
-      for (size_t i = 0; i < next.size(); i++) {
-        next[i] = NULL;
-      }
       top_level = MAX_LEVEL;
       BaseNode::type = NodeType::Node;
     }
@@ -198,9 +195,6 @@ class SkipList {
       }
 
       Node::next.resize(height + 1);
-      for (size_t i = 0; i < Node::next.size(); i++) {
-        Node::next[i] = NULL;
-      }
       Node::top_level = height;
       BaseNode::type = NodeType::DataNode;
     }
@@ -477,19 +471,23 @@ class SkipList {
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
-  void PrintVector(std::vector<Node *> v) {
-    std::cout << "( ";
-    for (size_t i = 0; i < v.size(); i++) {
-      std::cout << v[i] << ",";
-    }
-    std::cout << ")" << std::endl;
-  }
 
+  /**
+   * Attempt to insert (key, value) pair into the skiplist.
+   * @param key
+   * @param value
+   * @return False if key already exists and we don't allow duplicated
+   * key, or when duplicated keys are allowed, the (key, value) pair already
+   * exists. True otherwise.
+   */
   bool Insert(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
+
+    // Get random height by finding the last significant bit.
     int v = rand();
     int top_level =
         MultiplyDeBruijnBitPosition[((uint32_t)((v & -v) * 0x077CB531U)) >> 27];
+
     int bottom_level = 0;
     std::vector<Node *> preds(MAX_LEVEL + 1);
     std::vector<Node *> succs(MAX_LEVEL + 1);
@@ -499,34 +497,45 @@ class SkipList {
       bool temp = Find(key, preds, succs);
       bool found = temp;
       if (found) {
+        // We have found the Node but be aware of that the ValueChain of the
+        // Node might be frozen, which means that the Node is about to be
+        // logically deleted.
         if (!duplicated_key) {
           if (!((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
+            // The ValueChain is not frozen. Since duplicated keys are not
+            // allowed. We give up.
             epoch_manager.LeaveEpoch(epoch_node_p);
             return false;
           } else {
-            // wait until the Node to be deleted
+            // The ValueChain is frozen. Be patient and wait until the Node to
+            // be logically deleted.
             goto retry;
           }
         } else {
-          // allow duplicated key
+          // We allow duplicated key. Try to insert the value into the
+          // ValueChain.
           bool success =
               ((DataNode *)succs[bottom_level])->value_chain->Add(value);
           if (success) {
+            // Successfully inserted the value. Done.
             epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
           } else {
-            // Either because its frozen or the value alreay exists
+            // Insertion failed. It's either because its frozen or the value
+            // alreay exists
             if (((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
-              // wait until the Node to be deleted
+              // The ValueChain is frozen. Be patient and wait until the Node to
+              // be logically deleted.
               goto retry;
             } else {
-              // It must be the case that value already exists
+              // It must be the case that value already exists.
               epoch_manager.LeaveEpoch(epoch_node_p);
               return false;
             }
           }
         }
-      } else {
+      } else {  // We did not find such Node, need to create a new one.
+
         DataNode *new_node = new DataNode(this, key, value, top_level);
 
       // Update memory used
@@ -538,6 +547,7 @@ class SkipList {
           goto update_memory;
         }
 
+        // Link the new Node to successors.
         for (int level = bottom_level; level <= top_level; level++) {
           Node *succ = succs[level];
           new_node->next[level] = (Node *)PackSucc(succ, UNMARKED);
@@ -545,6 +555,8 @@ class SkipList {
         Node *pred = preds[bottom_level];
         Node *succ = succs[bottom_level];
         new_node->next[bottom_level] = (Node *)PackSucc(succ, UNMARKED);
+
+        // Link predecessors to the new Node.
         if (!__sync_bool_compare_and_swap(&(pred->next[bottom_level]),
                                           PackSucc(succ, UNMARKED),
                                           PackSucc(new_node, UNMARKED))) {
@@ -559,6 +571,8 @@ class SkipList {
                                              PackSucc(succ, UNMARKED),
                                              PackSucc(new_node, UNMARKED)))
               break;
+            // Failed linking. It must be that preds or succs have been changed.
+            // Try to find them again.
             Find(key, preds, succs);
           }
         }
@@ -568,6 +582,16 @@ class SkipList {
     }
   }
 
+  /**
+   * Attempt to delete (key, value) pair from the skiplist. If we found such
+   * pair we remove the value from the ValueChain first. Then if the ValueChain
+   * is frozen, then it means that the Node that contains the ValueChain needs
+   * to be deleted. It will try mark the Node to be logically removed and attemp
+   * physical removal.
+   * @param key
+   * @param value
+   * @return False if key the (key,value) pair doesn't exist. True otherwise.
+   */
   bool Delete(const KeyType &key, const ValueType &value) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
     int bottom_level = 0;
@@ -584,23 +608,28 @@ class SkipList {
       bool succeed =
           ((DataNode *)succs[bottom_level])->value_chain->Delete(value);
       if (!succeed) {
+        // Deletion failed. The value doesn't exist. Done.
         epoch_manager.LeaveEpoch(epoch_node_p);
         return false;
       } else if (((DataNode *)succs[bottom_level])->value_chain->IsFrozen()) {
-        // After you delete the value, the value_chain is frozen
+        // After you delete the value, the value_chain is frozen. Need to mark
+        // the Node to be logically deleted.
         Node *node_to_remove = succs[bottom_level];
+
+        // Try to mark higher levels.
         for (int level = node_to_remove->top_level; level >= bottom_level + 1;
              level--) {
           uint64_t marked;
           succ =
               (Node *)GetAddressAndMarkBit(node_to_remove->next[level], marked);
           while (!marked) {
-            // printf("try to mark the node at high level \n");
             AttempMark(node_to_remove->next[level], succ);
             succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[level],
                                                 marked);
           }
         }
+
+        // Try to mark bottom level.
         uint64_t marked;
         succ = (Node *)GetAddressAndMarkBit(node_to_remove->next[bottom_level],
                                             marked);
@@ -611,26 +640,43 @@ class SkipList {
           succ = (Node *)GetAddressAndMarkBit(
               node_to_remove->next[bottom_level], marked);
           if (i_marked_it) {
+            // Once we marked it call Find() to physically delete it. We just
+            // want the side effect of Find().
             Find(key, preds, succs);
             epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
           } else if (marked) {
+            // Someone else marked (logically deleted) it. I should return false
+            // because I didn't mark (logically delete) it.
             epoch_manager.LeaveEpoch(epoch_node_p);
             return false;
           }
         }
       } else {
-        // Successfully delete the value but the value_chain is not frozen
+        // Successfully delete the value but the value_chain is not frozen.
         epoch_manager.LeaveEpoch(epoch_node_p);
         return true;
       }
     }
   }
 
+  /**
+   * Given a key, it fills preds with Nodes whose keys are < the given key and
+   * succs with Nodes whose keys are >= the given key. head is considered < all
+   * Nodes and tail is considered > all Nodes.
+   *
+   * This function has a side effect: it physically removes marked
+   * (logically deleted) Nodes as it's searching.
+   *
+   * It returns whether we found a Node whose key == the given key.
+   * @param key
+   * @param preds
+   * @param succs
+   * @return True if we found such Node. False otherwise.
+   */
   bool Find(const KeyType &key, std::vector<Node *> &preds,
             std::vector<Node *> &succs) {
     EpochNode *epoch_node_p = epoch_manager.JoinEpoch();
-    // printf("Find(%d)\n", key);
     int bottom_level = 0;
     uint64_t marked;
     bool snip = false;
@@ -643,10 +689,9 @@ class SkipList {
       for (int level = MAX_LEVEL; level >= bottom_level; level--) {
         curr = (Node *)GetNextFromSucc((uint64_t)pred->next[level]);
         while (true) {
-          // printf("head: %p, tail : %p, curr %p\n", head, tail, curr);
           succ = (Node *)GetAddressAndMarkBit(curr->next[level], marked);
           while (marked) {
-            // printf("Find: I see a marked node %p\n", curr->next[level]);
+            // Find a marked Node. Try to physically delete it.
             snip = __sync_bool_compare_and_swap(&(pred->next[level]),
                                                 PackSucc(curr, UNMARKED),
                                                 PackSucc(succ, UNMARKED));
@@ -665,7 +710,6 @@ class SkipList {
           }
         }
         preds[level] = pred;
-        // curr->key >= key
         succs[level] = curr;
       }
       epoch_manager.LeaveEpoch(epoch_node_p);
@@ -677,6 +721,12 @@ class SkipList {
     }
   }
 
+  /**
+   * It fills the value_list with all values asscoated with the search_key.
+   *
+   * @param search_key
+   * @param value_list
+   */
   void GetValue(const KeyType &search_key, std::vector<ValueType> &value_list) {
     auto it = Begin(search_key);
 
@@ -868,7 +918,6 @@ class SkipList {
   // Utility Funciton
   ///////////////////////////////////////////////////////////////////
   void PrintSkipList() {
-    // printf("head: %p, tail :%p\n", head, tail);
     Node *ptr = head->next[0];
     int count = 0;
     while (ptr != tail) {
@@ -876,7 +925,6 @@ class SkipList {
       ((DataNode *)ptr)->value_chain->PrintValueChain();
 
       ptr = ptr->next[0];
-      // printf("next: %p\n", ptr);
       count++;
     }
     printf("Total: %d\n", count);
@@ -891,9 +939,6 @@ class SkipList {
   const KeyEqualityChecker key_eq_obj;
 
   const ValueEqualityChecker value_eq_obj;
-
-  // max_level falls in [0, MAX_LEVEL]
-  int max_level = 0;
 
   EpochManager epoch_manager;
 
