@@ -38,8 +38,6 @@ namespace index {
 
 #define MAX_LEVEL 31
 
-#define MAX_NUM_LEVEL 32
-
 #define MARKED 0b1
 #define UNMARKED 0b0
 
@@ -449,13 +447,6 @@ class SkipList {
   */
   inline static uint64_t GetMarkBitFromSucc(uint64_t succ) {
     return succ & 0b1;
-  }
-
-  static BaseNode *GetNextAndMarkBit(BaseNode *node, bool &marked) {
-    uint64_t succ = node->succ;
-    marked = GetMarkBitFromSucc(succ);
-    BaseNode *address = GetNextFromSucc(succ);
-    return address;
   }
 
   static bool AttempMark(Node *&address, Node *expected) {
@@ -901,11 +892,8 @@ class SkipList {
 
   const ValueEqualityChecker value_eq_obj;
 
-  // max_level falls in [0, MAX_NUM_LEVEL]
+  // max_level falls in [0, MAX_LEVEL]
   int max_level = 0;
-
-  // tmp memory pool to recyle nodes.
-  std::vector<void *> memory_pool;
 
   EpochManager epoch_manager;
 
