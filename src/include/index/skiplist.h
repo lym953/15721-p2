@@ -651,7 +651,7 @@ class SkipList {
       if (curr == tail) {
         return false;
       } else {
-        return ((DataNode *)curr)->key == key;
+        return KeyCmpEqual(((DataNode *)curr)->key, key);
       }
     }
   }
