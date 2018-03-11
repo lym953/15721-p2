@@ -162,23 +162,23 @@ class SkipList {
 
   class BaseNode {
    public:
-    uint64_t succ = 0;
     NodeType type = NodeType::BaseNode;
 
    public:
     NodeType GetNodeType() { return type; }
-    inline BaseNode *Next() { return (BaseNode *)GetNextFromSucc(succ); }
-    inline int GetMarkBit() { return GetMarkBitFromSucc(succ); }
   };
 
   class ValueNode : public BaseNode {
    public:
     ValueType value;
+    uint64_t succ = 0;
 
    public:
     ValueNode(const ValueType &value) : value(value) {
       BaseNode::type = NodeType::ValueNode;
     }
+    inline ValueNode *Next() { return (ValueNode *)GetNextFromSucc(succ); }
+    inline int GetMarkBit() { return GetMarkBitFromSucc(succ); }
   };
 
   ///////////////////////////////////////////////////////////////////
@@ -296,12 +296,12 @@ class SkipList {
       ValueNode *temp;
       while (ptr) {
         temp = ptr;
-        ptr = (ValueNode *)ptr->Next();
+        ptr = ptr->Next();
         delete temp;
       }
     }
 
-    bool AttemptMark(BaseNode *curr, BaseNode *succ) {
+    bool AttemptMark(ValueNode *curr, ValueNode *succ) {
       return __sync_bool_compare_and_swap(
           &(curr->succ), PackSucc(succ, UNMARKED), PackSucc(succ, MARKED));
     }
@@ -309,10 +309,10 @@ class SkipList {
     void PrintValueChain() {
       std::cout << "(" << key << ", "
                 << "[" << std::flush;
-      ValueNode *ptr = (ValueNode *)head->Next();
+      ValueNode *ptr = head->Next();
       while (ptr != tail) {
         std::cout << ptr->value << ", ";
-        ptr = (ValueNode *)ptr->Next();
+        ptr = ptr->Next();
       }
       std::cout << "])" << std::endl;
     }
@@ -386,7 +386,7 @@ class SkipList {
           list->epoch_manager.LeaveEpoch(epoch_node_p);
           return false;
         } else {
-          ValueNode *succ = (ValueNode *)curr->Next();
+          ValueNode *succ = curr->Next();
           // Try to marked the node as logically deleted. Once we succeed, we
           // are essentially done.
           snip = AttemptMark(curr, succ);
@@ -432,7 +432,7 @@ class SkipList {
       while (true) {
         pred = head;
         PL_ASSERT(pred);
-        curr = (ValueNode *)pred->Next();
+        curr = pred->Next();
         while (true) {
           succ = (ValueNode *)GetAddressAndMarkBit((void *)curr->succ, marked);
           while (marked) {
@@ -878,7 +878,7 @@ class SkipList {
       epoch_p = list_p->epoch_manager.JoinEpoch();
       node = list_p->head->next[0];
       if (!IsEnd()) {
-        val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+        val_node = ((DataNode *)node)->value_chain->head->Next();
       }
       MoveAheadToUndeletedNode();
     }
@@ -914,7 +914,7 @@ class SkipList {
 
       node = succs[0];
       if (!IsEnd()) {
-        val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+        val_node = ((DataNode *)node)->value_chain->head->Next();
       }
       MoveAheadToUndeletedNode();
     }
@@ -971,7 +971,7 @@ class SkipList {
       // Not reached the end of value chain
       PL_ASSERT(val_node != ((DataNode *)node)->value_chain->tail);
 
-      val_node = (ValueNode *)val_node->Next();
+      val_node = val_node->Next();
       MoveAheadToUndeletedNode();
     }
 
@@ -989,8 +989,7 @@ class SkipList {
       }
 
       while (true) {
-        if (node->GetMarkBit() ||
-            val_node == ((DataNode *)node)->value_chain->tail) {
+        if (val_node == ((DataNode *)node)->value_chain->tail) {
           // The node has been logically deleted, or we have reached the end of
           // value chain. Advance node.
           node = node->next[0];
@@ -998,11 +997,11 @@ class SkipList {
           if (IsEnd()) {
             return;
           }
-          val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+          val_node = ((DataNode *)node)->value_chain->head->Next();
           PL_ASSERT(val_node->type == NodeType::ValueNode);
         } else if (val_node->GetMarkBit()) {
           // Value node has been deleted. Advance value node.
-          val_node = (ValueNode *)val_node->Next();
+          val_node = val_node->Next();
         } else {
           // Pointing to an undeleted node right now
           return;
@@ -1062,20 +1061,20 @@ class SkipList {
 
       if (!duplicated_key) {
         // Check if the chain has more than 1 value;
-        ValueNode *first_value = (ValueNode *)chain->head->Next();
+        ValueNode *first_value = chain->head->Next();
         if (first_value->Next() != tail) return false;
       } else {
         // Check if contains duplicated values
         std::vector<ValueNode *> val_vector;
 
-        ValueNode *val_ptr = (ValueNode *)chain->head->Next();
+        ValueNode *val_ptr = chain->head->Next();
         while (val_ptr != chain->tail) {
           for (size_t i = 0; i < val_vector.size(); i++) {
             if (value_eq_obj(val_vector[i]->value, val_ptr->value))
               return false;
           }
           val_vector.push_back(val_ptr);
-          val_ptr = (ValueNode *)val_ptr->Next();
+          val_ptr = val_ptr->Next();
         }
       }
 
