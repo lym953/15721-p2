@@ -644,6 +644,7 @@ class SkipList {
           }
         }
         preds[level] = pred;
+        // curr->key >= key
         succs[level] = curr;
       }
       epoch_manager.LeaveEpoch(epoch_node_p);
@@ -670,158 +671,168 @@ class SkipList {
    * Begin() - Return an iterator pointing to the first element in the list, or
    * an end iterator if the list is empty.
    */
-  // ForwardIterator Begin() { return ForwardIterator{this}; }
-  //
-  // /*
-  //  * Begin() - Return an iterator using a given key
-  //  *
-  //  * The iterator returned will point to the first data item whose key is
-  //  * greater than or equal to the given start key.
-  //  */
-  // ForwardIterator Begin(const KeyType &start_key) {
-  //   return ForwardIterator{this, start_key};
-  // }
+  ForwardIterator Begin() { return ForwardIterator{this}; }
+
+  /*
+   * Begin() - Return an iterator using a given key
+   *
+   * The iterator returned will point to the first data item whose key is
+   * greater than or equal to the given start key.
+   */
+  ForwardIterator Begin(const KeyType &start_key) {
+    return ForwardIterator{this, start_key};
+  }
 
   /*
    * class ForwardIterator - Iterator that supports forward iteration of list
    *                         elements
    */
-  // class ForwardIterator {
-  // private:
-  //   LeafNode *lf_node;
-  //   ValueNode *val_node;
-  //   SKIPLIST_TYPE *list_p;
-  //
-  // public:
-  //   /*
-  //    * Constructor
-  //    *
-  //    * The iterator will point to the first element in the list, or become an
-  //    * end iterator if the list is empty.
-  //    */
-  //   ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
-  //     lf_node = (LeafNode *)list_p->head_nodes[0].Next();
-  //     val_node = (ValueNode *)lf_node->head->Next();
-  //     MoveAheadToUndeletedNode();
-  //   }
-  //
-  //   /*
-  //    * Constructor - Construct an iterator given a key
-  //    *
-  //    * The iterator will point to the first data item whose key is greater
-  //    * than or equal to the given start key, or become an end iterator if the
-  //    * list is empty.
-  //    */
-  //   ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
-  //       : list_p{p_list_p} {
-  //     LowerBound(start_key);
-  //   }
-  //
-  //   /*
-  //    * IsEnd() - Whether the current iterator has reached the end of the list
-  //    */
-  //   bool IsEnd() const { return lf_node == nullptr; }
-  //
-  //   /*
-  //    * LowerBound() - Find entry whose key >= start_key
-  //    */
-  //   void LowerBound(const KeyType &start_key_p) {
-  //     lf_node = (LeafNode *)(list_p->Search(start_key_p, 0));
-  //
-  //     if (lf_node == nullptr) {
-  //       // There is no node whose key <= start_key
-  //       lf_node = (LeafNode *)(list_p->head_nodes[0].Next());
-  //     } else if (list_p->KeyCmpLess(lf_node->key, start_key_p)) {
-  //       // There is no node whose key == start_key. Now lf_node is the last
-  //       // one whose key < start_key.
-  //       lf_node = (LeafNode *)(lf_node->Next());
-  //     }
-  //     if (lf_node != NULL) {
-  //       val_node = (ValueNode *)(lf_node->head->Next());
-  //       MoveAheadToUndeletedNode();
-  //     }
-  //     //
-  //     //      PL_ASSERT(lf_node == nullptr ||
-  //     //                KeyCmpLessEqual(start_key_p, lf_node->key));
-  //   }
-  //
-  //   /*
-  //    * GetKey() - Get the key pointed by the iterator
-  //    *
-  //    * The caller is responsible for checking whether the iterator has
-  //    reached
-  //    * its end. If yes then assertion will fail.
-  //    */
-  //   inline const KeyType GetKey() {
-  //     PL_ASSERT(lf_node);
-  //     return lf_node->key;
-  //   }
-  //
-  //   /*
-  //    * GetValue() - Get the value pointed by the iterator
-  //    *
-  //    * The caller is responsible for checking whether the iterator has
-  //    reached
-  //    * its end. If yes then assertion will fail.
-  //    */
-  //   inline const ValueType GetValue() {
-  //     PL_ASSERT(val_node);
-  //     return val_node->value;
-  //   }
-  //
-  //   /*
-  //    * Prefix operator++ - Move the iterator ahead
-  //    *
-  //    * The caller is responsible for checking whether the iterator has
-  //    reached
-  //    * its end.
-  //    */
-  //   inline ForwardIterator &operator++() {
-  //     MoveAheadByOne();
-  //     return *this;
-  //   }
-  //
-  //   /*
-  //    * MoveAheadByOne() - Move the iterator ahead by one
-  //    *
-  //    * The caller is responsible for checking whether the iterator has
-  //    reached
-  //    * its end. If iterator has reached end then assertion fails.
-  //    */
-  //   inline void MoveAheadByOne() {
-  //     PL_ASSERT(lf_node != nullptr);
-  //     PL_ASSERT(val_node != nullptr);
-  //     val_node = (ValueNode *)val_node->Next();
-  //     MoveAheadToUndeletedNode();
-  //   }
-  //
-  //   /*
-  //    * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
-  //    * undeleted node
-  //    *
-  //    * If the iterator is currently pointing to an undeleted node, then it
-  //    * will not be moved. If there is no undeleted node after the iterator,
-  //    * then it will become an end iterator.
-  //    */
-  //   inline void MoveAheadToUndeletedNode() {
-  //     // reach the end of the list
-  //     if (lf_node == nullptr)
-  //       return;
-  //
-  //     while (val_node == nullptr) {
-  //       // val_node == nullptr means we have reached the end of
-  //       // ValueNode list for the current key. Go on to the next key.
-  //
-  //       lf_node = (LeafNode *)lf_node->Next();
-  //
-  //       // reach the end of skiplist
-  //       if (lf_node == nullptr)
-  //         return;
-  //
-  //       val_node = (ValueNode *)lf_node->head->Next();
-  //     }
-  //   }
-  // };
+  class ForwardIterator {
+   private:
+    Node *node = NULL;
+    ValueNode *val_node = NULL;
+    SKIPLIST_TYPE *list_p;
+
+   public:
+    /*
+     * Constructor
+     *
+     * The iterator will point to the first element in the list, or become an
+     * end iterator if the list is empty.
+     */
+    ForwardIterator(SKIPLIST_TYPE *p_list_p) : list_p{p_list_p} {
+      node = list_p->head->next[0];
+      if (!IsEnd()) {
+        val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+      }
+      MoveAheadToUndeletedNode();
+    }
+
+    /*
+     * Constructor - Construct an iterator given a key
+     *
+     * The iterator will point to the first data item whose key is greater
+     * than or equal to the given start key, or become an end iterator if the
+     * list is empty.
+     */
+    ForwardIterator(SKIPLIST_TYPE *p_list_p, const KeyType &start_key)
+        : list_p{p_list_p} {
+      LowerBound(start_key);
+    }
+
+    /*
+     * IsEnd() - Whether the current iterator has reached the end of the list
+     */
+    inline bool IsEnd() const { return node == list_p->tail; }
+
+    /*
+     * LowerBound() - Find data item whose key >= start_key
+     */
+    void LowerBound(const KeyType &start_key) {
+      std::vector<Node *> preds(MAX_LEVEL + 1);
+      std::vector<Node *> succs(MAX_LEVEL + 1);
+
+      // succs[0].key >= key, or succ[0] == tail
+      list_p->Find(start_key, preds, succs);
+
+      node = succs[0];
+      if (!IsEnd()) {
+        val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+      }
+      MoveAheadToUndeletedNode();
+    }
+
+    /*
+     * GetKey() - Get the key pointed by the iterator
+     *
+     * The caller is responsible for checking whether the iterator has
+     * reached its end. If yes then assertion will fail.
+     */
+    inline const KeyType GetKey() {
+      PL_ASSERT(!IsEnd());
+      return ((DataNode *)node)->key;
+    }
+
+    /*
+     * GetValue() - Get the value pointed by the iterator
+     *
+     * The caller is responsible for checking whether the iterator has
+     * reached its end. If yes then assertion will fail.
+     */
+    inline const ValueType GetValue() {
+      // Not reached the end of skiplist
+      PL_ASSERT(!IsEnd());
+      // Not reached the end of value chain
+      PL_ASSERT(val_node != ((DataNode *)node)->value_chain->tail);
+
+      return val_node->value;
+    }
+
+    /*
+     * Prefix operator++ - Move the iterator ahead
+     *
+     * The caller is responsible for checking whether the iterator has
+     reached
+     * its end.
+     */
+    inline ForwardIterator &operator++() {
+      MoveAheadByOne();
+      return *this;
+    }
+
+    /*
+     * MoveAheadByOne() - Move the iterator ahead by one
+     *
+     * Before invocation, the iterator should be pointing to a valid data
+     * item.
+     * The caller is responsible for checking whether the iterator has
+     * reached its end. If iterator has reached end then assertion fails.
+     */
+    inline void MoveAheadByOne() {
+      // Not reached the end of skiplist
+      PL_ASSERT(!IsEnd());
+      // Not reached the end of value chain
+      PL_ASSERT(val_node != ((DataNode *)node)->value_chain->tail);
+
+      val_node = (ValueNode *)val_node->Next();
+      MoveAheadToUndeletedNode();
+    }
+
+    /*
+     * MoveAheadToUndeletedNode() - Move the iterator ahead to the first
+     * undeleted node
+     *
+     * If the iterator is currently pointing to an undeleted node, then it
+     * will not be moved. If there is no undeleted node after the iterator,
+     * then it will become an end iterator.
+     */
+    inline void MoveAheadToUndeletedNode() {
+      if (IsEnd()) {
+        return;
+      }
+
+      while (true) {
+        if (node->GetMarkBit() ||
+            val_node == ((DataNode *)node)->value_chain->tail) {
+          // The node has been logically deleted, or we have reached the end of
+          // value chain. Advance node.
+          node = node->next[0];
+          // Reach the end of skiplist
+          if (IsEnd()) {
+            return;
+          }
+          val_node = (ValueNode *)((DataNode *)node)->value_chain->head->Next();
+          PL_ASSERT(val_node->type == NodeType::ValueNode);
+        } else if (val_node->GetMarkBit()) {
+          // Value node has been deleted. Advance value node.
+          val_node = (ValueNode *)val_node->Next();
+        } else {
+          // Pointing to an undeleted node right now
+          return;
+        }
+      }
+    }
+  };
 
   ///////////////////////////////////////////////////////////////////
   // Utility Funciton
