@@ -113,8 +113,6 @@ class SkipList {
     }
     LOG_DEBUG("size of nodes: Value %zu, Node %zu, DataNode %zu",
               size_of_value_node, size_of_value_node, size_of_data_node);
-
-    // TODO: Free dead nodes, i.e., nodes are in the memory pool.
   }
 
  public:
@@ -204,7 +202,18 @@ class SkipList {
   ///////////////////////////////////////////////////////////////////
   // ValueChain Class
   ///////////////////////////////////////////////////////////////////
-
+  /***
+   * ValueChain class is essentially a lock-free linked list. In addition, it
+   * has following properties:
+   *
+   * 1. It has a key field associated with it. A value in the ValueChain
+   * represents a (key, value) pair.
+   *
+   * 2. Once a ValueChain becomes empty, it's frozen. A frozen ValueChain is not
+   *allowed to add more values. Therefore, it doesn't have a default
+   *constructor. To construct a ValueChain, you must provide an initial value.
+   *
+   */
   class ValueChain {
    public:
     SkipList *list;
@@ -224,14 +233,20 @@ class SkipList {
     };
 
    public:
+    /***
+     * Constructor. It constructor a ValueChain with initial value = @value.
+     */
     ValueChain(SkipList *list, const KeyType &key, const ValueType &value) {
       this->list = list;
       this->key = key;
+
+      // Values in the head and tail are just placeholders.
       head = new ValueNode(value);
       tail = new ValueNode(value);
       ValueNode *first_value = new ValueNode(value);
 
       size_t memory_claimed = 3 * list->size_of_value_node;
+
     // Update memory used
     update_memory:
       size_t cur_memory_used = list->memory_used;
@@ -271,25 +286,30 @@ class SkipList {
       std::cout << "])" << std::endl;
     }
 
+    /***
+     * Add the given value to the ValueChain if it doesn't exist.
+     * @param value The value to be inserted.
+     * @return True if successfully added the value. False otherwise.
+     */
     bool Add(const ValueType &value) {
       EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
-      // printf("Call Add(%d)\n", value);
       while (true) {
         Window window = Find(head, value);
         ValueNode *pred = window.pred;
         ValueNode *curr = window.curr;
 
+        // Check whether the ValueChain is frozen.
         if (pred == head && curr == tail) {
           list->epoch_manager.LeaveEpoch(epoch_node_p);
           return false;
         }
 
-        // printf("what goes wront?\n");
         if (curr != tail && list->value_eq_obj(curr->value, value)) {
+          // The value already exists.
           list->epoch_manager.LeaveEpoch(epoch_node_p);
           return false;
         } else {
-          // printf("adding %d\n", value);
+          // The value doesn't exist. Attempt to add a new value node.
           ValueNode *node = new ValueNode(value);
 
         // Update memory used
@@ -301,6 +321,7 @@ class SkipList {
             goto update_memory;
           }
 
+          // Try to insert the new node into the ValueChain.
           node->succ = PackSucc(curr, UNMARKED);
           if (__sync_bool_compare_and_swap(&(pred->succ),
                                            PackSucc(curr, UNMARKED),
@@ -308,12 +329,20 @@ class SkipList {
             list->epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
           } else {
+            // pred has been changed. Need to search again.
             list->epoch_manager.AddGarbageNode(node);
           }
         }
       }
     }
 
+    /***
+     * Delete the given value from the ValueChain if it exists. It will first
+     * marked the ValueNode to be logically deleted and attempt physical
+     * removal.
+     * @param value The value to be deleted.
+     * @return True if successfully deleted the value. False otherwise.
+     */
     bool Delete(const ValueType &value) {
       EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
       bool snip;
@@ -322,12 +351,18 @@ class SkipList {
         ValueNode *pred = window.pred;
         ValueNode *curr = window.curr;
         if (curr == tail || !list->value_eq_obj(curr->value, value)) {
+          // The value doesn't exist.
           list->epoch_manager.LeaveEpoch(epoch_node_p);
           return false;
         } else {
           ValueNode *succ = (ValueNode *)curr->Next();
+          // Try to marked the node as logically deleted. Once we succeed, we
+          // are essentially done.
           snip = AttempMark(curr, succ);
           if (!snip) continue;
+
+          // Attempt physical deletion. It doesn't matter if it fails because
+          // Find() will help us with physical deletion.
           if (__sync_bool_compare_and_swap(&(pred->succ),
                                            PackSucc(curr, UNMARKED),
                                            PackSucc(succ, UNMARKED))) {
@@ -339,8 +374,23 @@ class SkipList {
       }
     }
 
+    /***
+     * Given a value, search the ValueChain starting from @head and find two
+     *nodes, pred and
+     * curr, such that
+     * if the value exists:
+     *      curr->value == @value and pred->Next() == curr
+     * if the value doesn't exist
+     *      curr == tail and pred->Next() == curr
+     *
+     * As a side effect, it will physically removed nodes if it sees a marked
+     *ValueNode.
+     * @param head search starting point
+     * @param value the value we want to find
+     * @return a Window such that Window.curr->value == value or Window.curr ==
+     * tail and Window.pred->Next() == Window.curr
+     */
     Window Find(ValueNode *head, const ValueType &value) {
-      // printf("call find (%d)\n", value);
       EpochNode *epoch_node_p = list->epoch_manager.JoinEpoch();
       ValueNode *pred = NULL;
       ValueNode *curr = NULL;
@@ -355,7 +405,6 @@ class SkipList {
         while (true) {
           succ = (ValueNode *)GetAddressAndMarkBit((void *)curr->succ, marked);
           while (marked) {
-            // printf("current is marked\n");
             snip = __sync_bool_compare_and_swap(&(pred->succ),
                                                 PackSucc(curr, UNMARKED),
                                                 PackSucc(succ, UNMARKED));
@@ -437,20 +486,10 @@ class SkipList {
   // Linked list helper functions
   ////////////////////////////////////////////////////////////
   /*
-  * GetMarkBitFromSucc() - Get "mark" bit from successor field
-  */
+   * GetMarkBitFromSucc() - Get "mark" bit from successor field
+   */
   inline static uint64_t GetMarkBitFromSucc(uint64_t succ) {
     return succ & 0b1;
-  }
-
-  inline static bool AttempMark(Node *&address, Node *expected) {
-    return __sync_bool_compare_and_swap(&address, PackSucc(expected, UNMARKED),
-                                        PackSucc(expected, MARKED));
-  }
-
-  inline static void *GetAddressAndMarkBit(void *address, uint64_t &marked) {
-    marked = (uint64_t)address & 0b1;
-    return (void *)((uint64_t)address & ~0b1);
   }
 
   /*
@@ -466,6 +505,23 @@ class SkipList {
    */
   inline static uint64_t PackSucc(void *next, uint64_t marked) {
     return ((uint64_t)next) | marked;
+  }
+
+  /**
+   * Attempt to mark the given address.
+   */
+  inline static bool AttempMark(Node *&address, Node *expected) {
+    return __sync_bool_compare_and_swap(&address, PackSucc(expected, UNMARKED),
+                                        PackSucc(expected, MARKED));
+  }
+
+  /**
+   * A combination of GetMarkBitFromSucc() and GetNextFromSucc().
+   * It sets @marked and returns the real address.
+   */
+  inline static void *GetAddressAndMarkBit(void *address, uint64_t &marked) {
+    marked = (uint64_t)address & 0b1;
+    return (void *)((uint64_t)address & ~0b1);
   }
 
   ////////////////////////////////////////////////////////////////////
