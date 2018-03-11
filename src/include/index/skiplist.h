@@ -93,7 +93,7 @@ class SkipList {
     }
 
     LOG_TRACE("Starting epoch manager thread...");
-    epoch_manager.StartThread();
+    //epoch_manager.StartThread();
   };
 
   // Destructor
@@ -280,6 +280,8 @@ class SkipList {
                                            PackSucc(node, UNMARKED))) {
             list->epoch_manager.LeaveEpoch(epoch_node_p);
             return true;
+          }else{
+            list->epoch_manager.AddGarbageNode(node);
           }
         }
       }
@@ -520,6 +522,7 @@ class SkipList {
                                           PackSucc(succ, UNMARKED),
                                           PackSucc(new_node, UNMARKED))) {
           // printf("We failed chage pointers at level %d\n", 0);
+          epoch_manager.AddGarbageNode(new_node);
           continue;
         }
         // printf("We insert node(%d) level %d\n", key, 0);
