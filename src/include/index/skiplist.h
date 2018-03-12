@@ -125,9 +125,6 @@ class SkipList {
     for (size_t i = 0; i < head->next.size(); i++) {
       head->next[i] = tail;
     }
-
-    LOG_TRACE("Starting epoch manager thread...");
-    // epoch_manager.StartThread();
   };
 
   // Destructor
@@ -183,10 +180,6 @@ class SkipList {
     }
     inline ValueNode *Next() { return (ValueNode *)GetNextFromSucc(succ); }
     inline int GetMarkBit() { return GetMarkBitFromSucc(succ); }
-    inline void Set(const ValueType &value) {
-      BaseNode::type = NodeType::ValueNode;
-      value = value;
-    }
     inline void *operator new(size_t size) { return malloc(size); }
     inline void operator delete(void *p) { return free(p); }
   };
