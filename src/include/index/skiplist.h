@@ -23,6 +23,8 @@
 #include "common/logger.h"
 #include "common/macros.h"
 #include "util/string_util.h"
+#include <stdlib.h>
+#include <jemalloc/jemalloc.h>
 namespace peloton {
 namespace index {
 /*
@@ -166,6 +168,8 @@ class SkipList {
 
    public:
     NodeType GetNodeType() { return type; }
+    inline void *operator new(size_t size) { return malloc(size); }
+    inline void operator delete(void *p) { return free(p); }
   };
 
   class ValueNode : public BaseNode {
@@ -179,6 +183,12 @@ class SkipList {
     }
     inline ValueNode *Next() { return (ValueNode *)GetNextFromSucc(succ); }
     inline int GetMarkBit() { return GetMarkBitFromSucc(succ); }
+    inline void Set(const ValueType &value) {
+      BaseNode::type = NodeType::ValueNode;
+      value = value;
+    }
+    inline void *operator new(size_t size) { return malloc(size); }
+    inline void operator delete(void *p) { return free(p); }
   };
 
   ///////////////////////////////////////////////////////////////////
@@ -197,6 +207,8 @@ class SkipList {
       top_level = MAX_LEVEL;
       BaseNode::type = NodeType::Node;
     }
+    inline void *operator new(size_t size) { return malloc(size); }
+    inline void operator delete(void *p) { return free(p); }
   };
 
   class DataNode : public Node {
@@ -228,6 +240,8 @@ class SkipList {
     }
 
     ~DataNode() { delete value_chain; }
+    inline void *operator new(size_t size) { return malloc(size); }
+    inline void operator delete(void *p) { return free(p); }
   };
   ///////////////////////////////////////////////////////////////////
   // ValueChain Class
@@ -261,6 +275,8 @@ class SkipList {
         pred = my_pred;
         curr = my_curr;
       }
+      inline void *operator new(size_t size) { return malloc(size); }
+      inline void operator delete(void *p) { return free(p); }
     };
 
    public:
@@ -300,6 +316,9 @@ class SkipList {
         delete temp;
       }
     }
+
+    inline void *operator new(size_t size) { return malloc(size); }
+    inline void operator delete(void *p) { return free(p); }
 
     bool AttemptMark(ValueNode *curr, ValueNode *succ) {
       return __sync_bool_compare_and_swap(
@@ -555,7 +574,6 @@ class SkipList {
     marked = (uint64_t)address & 0b1;
     return (void *)((uint64_t)address & ~0b1);
   }
-
   ////////////////////////////////////////////////////////////////////
   // Interface Method Implementation
   ////////////////////////////////////////////////////////////////////
