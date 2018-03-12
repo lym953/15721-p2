@@ -1507,6 +1507,134 @@ class SkipList {
 
   };  // Epoch manager
 
+  template <typename NodeType>
+  class MemoryPool {
+   private:
+    class FreeNode {
+     public:
+      NodeType *mem;
+      FreeNode *next;
+      FreeNode(NodeType *_mem = NULL) : mem{_mem}, next{NULL} {}
+    };  // FreeNode
+
+    class FreeNodeList {
+     public:
+      std::atomic<FreeNode *> m_head;
+
+      FreeNodeList() { m_head = NULL; }
+
+      ~FreeNodeList() {
+        FreeNode *curr = m_head.load();
+        while (curr != NULL) {
+          FreeNode *next = curr->next;
+          delete curr;
+          curr = next;
+        }
+      }
+
+      /*
+       * FreeNodeMemory() - Free memory used by NodeType maintained by the list
+       */
+      void FreeNodeMemory() {
+        FreeNode *curr = m_head.load();
+        while (curr != NULL) {
+          FreeNode *next = curr->next;
+          delete (NodeType *)(curr->mem);
+          curr = next;
+        }
+      }
+
+      /*
+       * Add() - Insert a FreeNode as the new head.
+       */
+      void Add(FreeNode *free_node) {
+        FreeNode *head;
+        do {
+          head = m_head.load();
+          free_node->next = head;
+        } while (!m_head.compare_exchange_strong(head, free_node));
+      }
+
+      /*
+       * Remove() - Remove a FreeNode from the head. Return NULL if empty.
+       */
+      FreeNode *Remove() {
+        FreeNode *head;
+        FreeNode *next;
+
+        while (1) {
+          head = m_head.load();
+
+          // List is empty
+          if (head == NULL) {
+            return NULL;
+          }
+
+          next = head->next;
+          if (m_head.compare_exchange_strong(head, next)) {
+            // Succeed
+            return head;
+          }
+        }
+      }
+
+      bool IsEmpty() { return m_head == NULL; }
+
+      size_t Size() {
+        FreeNode *curr = m_head.load();
+        size_t size = 0;
+        while (curr != NULL) {
+          size++;
+          curr = curr->next;
+        }
+        return size;
+      }
+    };  // FreeNodeList
+
+    FreeNodeList list1;
+    FreeNodeList list2;
+
+   public:
+    MemoryPool() {}
+
+    ~MemoryPool() { list1.FreeNodeMemory(); }
+
+    /*
+     * Alloc() - Allocate a chunk of memory of size sizeof(NodeType) from memory
+     * pool. Return NULL if the pool is empty.
+     */
+    NodeType *Alloc() {
+      FreeNode *free_node = list1.Remove();
+
+      // No free memory in memory pool
+      if (free_node == NULL) {
+        return NULL;
+      }
+
+      NodeType *ret = free_node->mem;
+      list2.Add(free_node);
+      return ret;
+    }
+
+    /*
+     * Free() - Add a chunk of memory of size sizeof(NodeType) to memory pool.
+     */
+    void Free(NodeType *mem) {
+      FreeNode *free_node;
+      free_node = list2.Remove();
+      if (free_node == NULL) {
+        free_node = new FreeNode();
+      }
+      free_node->mem = mem;
+      list1.Add(free_node);
+    }
+
+    void PrintListSizes() {
+      printf("list1.Size() = %ld\n", list1.Size());
+      printf("list2.Size() = %ld\n", list2.Size());
+    }
+  };  // Memory Pool
+
  private:
   // Used for finding the least significant bit
   const int MultiplyDeBruijnBitPosition[32] = {
